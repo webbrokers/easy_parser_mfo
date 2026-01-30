@@ -52,11 +52,11 @@ RUN npm install
 # Копируем остальные файлы
 COPY . .
 
-# Собираем CSS
-RUN npm run build:css
+# Собираем CSS (даем права на выполнение бинарникам)
+RUN chmod +x node_modules/.bin/* && npm run build:css
 
 # Создаем папки для данных
-RUN mkdir -p public/screenshots
+RUN mkdir -p public/screenshots public/img
 
 # Открываем порт
 EXPOSE 3000
