@@ -52,4 +52,19 @@ db.prepare(`
     )
 `).run();
 
+// Наполнение начальными данными, если пусто
+const count = db.prepare('SELECT count(*) as count FROM showcases').get().count;
+if (count === 0) {
+    const initialSites = [
+        { url: 'https://robot-zaymer.ru/', name: 'Robot Zaymer' },
+        { url: 'https://zyamer.ru/', name: 'Zyamer Главная' },
+        { url: 'https://zyamer.ru/smart/', name: 'Zyamer Smart' },
+        { url: 'https://zyamer.ru/popzaym/', name: 'Zyamer Popzaym' }
+    ];
+    
+    const insert = db.prepare('INSERT INTO showcases (url, name) VALUES (?, ?)');
+    initialSites.forEach(site => insert.run(site.url, site.name));
+    console.log('Database seeded with initial showcases.');
+}
+
 module.exports = db;
