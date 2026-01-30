@@ -13,6 +13,11 @@ try {
     console.error('Failed to connect to database:', err);
 }
 
+if (!db) {
+    console.error('Critical: Database object is not initialized. Exiting setup...');
+    return; // Прекращаем выполнение файла, если БД не создалась
+}
+
 // Таблица витрин (сайтов)
 db.prepare(`
     CREATE TABLE IF NOT EXISTS showcases (

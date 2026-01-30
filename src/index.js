@@ -11,6 +11,9 @@ const { dailyTask } = require('./scheduler');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Принудительно слушаем на всех интерфейсах для облака
+const HOST = '0.0.0.0';
+
 // Настройка EJS и статики
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
@@ -76,8 +79,8 @@ app.post('/api/run-all', async (req, res) => {
 
 // Запуск сервера
 if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`Сервер запущен на http://localhost:${PORT}`);
+    app.listen(PORT, HOST, () => {
+        console.log(`Сервер запущен на http://${HOST}:${PORT}`);
     });
 }
 

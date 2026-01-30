@@ -7,6 +7,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "build:css": "npx tailwindcss -i ./public/css/input.css -o ./public/css/style.css",
     "watch:css": "npx tailwindcss -i ./public/css/input.css -o ./public/css/style.css --watch",
+    "build": "npm run build:css",
     "dev": "nodemon src/index.js",
     "start": "node src/index.js"
   },
