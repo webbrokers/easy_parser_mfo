@@ -1,0 +1,165 @@
+<%- include('partials/header') %>
+
+<main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <!-- Header Section -->
+    <div class="md:flex md:items-center md:justify-between mb-8">
+        <div class="flex-1 min-w-0">
+            <h2 class="text-3xl font-bold leading-7 text-manus-text sm:text-4xl sm:truncate">
+                Дашборд аналитики
+            </h2>
+            <p class="mt-1 text-sm text-gray-500">
+                Обзор всех витрин и офферов в реальном времени
+            </p>
+        </div>
+        <div class="mt-4 flex md:mt-0 md:ml-4">
+            <button type="button" onclick="runScraperAll()" id="runAllBtn" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-manus-accent hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                Запустить парсинг всех
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-10">
+        <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
+            <div class="p-5">
+                <dt class="text-sm font-medium text-gray-500 truncate">Всего витрин</dt>
+                <dd class="mt-1 text-3xl font-semibold text-manus-text"><%= stats.totalShowcases %></dd>
+            </div>
+        </div>
+        <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
+            <div class="p-5">
+                <dt class="text-sm font-medium text-gray-500 truncate">Офферов в базе</dt>
+                <dd class="mt-1 text-3xl font-semibold text-manus-text"><%= stats.totalOffers %></dd>
+            </div>
+        </div>
+        <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
+            <div class="p-5">
+                <dt class="text-sm font-medium text-gray-500 truncate">Запусков сегодня</dt>
+                <dd class="mt-1 text-3xl font-semibold text-green-600"><%= stats.runsToday %></dd>
+            </div>
+        </div>
+        <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
+            <div class="p-5">
+                <dt class="text-sm font-medium text-gray-500 truncate">Ошибок за 24ч</dt>
+                <dd class="mt-1 text-3xl font-semibold text-red-600"><%= stats.errorsToday %></dd>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Section -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
+        <div class="bg-white p-6 shadow rounded-lg border border-gray-100">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Тренд позиций офферов</h3>
+            <canvas id="positionsChart"></canvas>
+        </div>
+        <div class="bg-white p-6 shadow rounded-lg border border-gray-100">
+            <h3 class="text-lg font-medium text-gray-900 mb-4">Топ офферов по витринам</h3>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Оффер</th>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ср. Позиция</th>
+                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Частота</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        <% avgPos.slice(0, 5).forEach(item => { %>
+                        <tr>
+                            <td class="px-3 py-4 whitespace-nowrap text-sm font-medium text-gray-900"><%= item.company_name %></td>
+                            <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500"><%= item.avg_pos.toFixed(1) %></td>
+                            <td class="px-3 py-4 whitespace-nowrap text-sm text-gray-500"><%= item.appearances %></td>
+                        </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Showcases List -->
+    <div class="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
+        <div class="px-4 py-5 sm:px-6 border-b border-gray-200 flex justify-between items-center">
+            <h3 class="text-lg leading-6 font-medium text-gray-900">Список витрин</h3>
+        </div>
+        <ul role="list" class="divide-y divide-gray-200">
+            <% showcases.forEach(site => { %>
+            <li>
+                <div class="px-4 py-4 sm:px-6 hover:bg-gray-50 transition-all">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <div class="p-2 bg-blue-50 rounded-lg mr-4">
+                                <svg class="h-6 w-6 text-manus-accent" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-1.343 3-3s-1.343-3-3-3m0 6c-1.657 0-3-1.343-3-3s1.343-3-3-3m0 6V9" />
+                                </svg>
+                            </div>
+                            <p class="text-sm font-medium text-manus-text truncate"><%= site.name %></p>
+                        </div>
+                        <div class="ml-2 flex-shrink-0 flex">
+                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <%= site.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' %>">
+                                <%= site.is_active ? 'Active' : 'Paused' %>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="mt-2 sm:flex sm:justify-between">
+                        <div class="sm:flex">
+                            <p class="flex items-center text-xs text-gray-500">
+                                <span class="truncate"><%= site.url %></span>
+                            </p>
+                        </div>
+                        <div class="mt-2 flex items-center text-xs text-gray-500 sm:mt-0">
+                            <a href="/showcase/<%= site.id %>" class="text-manus-accent hover:underline">Подробнее →</a>
+                        </div>
+                    </div>
+                </div>
+            </li>
+            <% }) %>
+        </ul>
+    </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    async function runScraperAll() {
+        const btn = document.getElementById('runAllBtn');
+        btn.disabled = true;
+        btn.innerText = 'Парсинг...';
+        
+        try {
+            const res = await fetch('/api/run-all', { method: 'POST' });
+            const data = await res.json();
+            alert('Парсинг завершен! Обновите страницу.');
+        } catch (e) {
+            alert('Ошибка при запуске');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = 'Запустить парсинг всех';
+        }
+    }
+
+    // Chart placeholder
+    const ctx = document.getElementById('positionsChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+            datasets: [{
+                label: 'Средняя позиция (все)',
+                data: [1.2, 1.5, 1.1, 1.8, 1.4, 1.3, 1.2],
+                borderColor: '#0066CC',
+                tension: 0.4
+            }]
+        },
+        options: {
+            plugins: {
+                legend: { display: false }
+            },
+            scales: {
+                y: { reverse: true, min: 1 }
+            }
+        }
+    });
+</script>
+
+</body>
+</html>

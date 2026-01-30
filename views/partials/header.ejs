@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full bg-manus-bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= typeof title !== 'undefined' ? title : 'MFO.Parser' %></title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="h-full">
+    <nav class="bg-white/80 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="flex-shrink-0 flex items-center gap-2">
+                        <div class="w-8 h-8 bg-manus-accent rounded-lg flex items-center justify-center text-white font-bold">P</div>
+                        <span class="text-lg font-semibold tracking-tight text-manus-text">MFO.Parser</span>
+                    </a>
+                    <div class="hidden sm:-my-px sm:ml-8 sm:flex sm:space-x-8 h-full">
+                        <a href="/" class="border-manus-accent text-manus-text inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Дашборд</a>
+                        <a href="/offers" class="border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Офферы</a>
+                        <a href="/settings" class="border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Настройки</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>

@@ -1,0 +1,75 @@
+<%- include('partials/header') %>
+
+<main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+    <div class="mb-8 flex items-center gap-4">
+        <a href="/" class="text-gray-400 hover:text-manus-text">← Назад</a>
+        <h2 class="text-3xl font-bold text-manus-text"><%= showcase.name %></h2>
+    </div>
+
+    <% if (latest && latest.run) { %>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Offers Table -->
+        <div class="lg:col-span-2 bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
+            <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900">Результаты парсинга от <%= new Date(latest.run.run_date).toLocaleString() %></h3>
+            </div>
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Поз.</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Компания</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ссылка</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    <% latest.offers.forEach(offer => { %>
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-xs font-semibold text-gray-400">
+                            <%= offer.placement_type.toUpperCase() %>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900"><%= offer.position %></td>
+                        <td class="px-6 py-4 whitespace-nowrap flex items-center gap-3">
+                            <% if (offer.image_url) { %>
+                                <img src="<%= offer.image_url %>" class="w-8 h-8 object-contain rounded bg-gray-50" onerror="this.src='/img/no-logo.png'">
+                            <% } %>
+                            <span class="text-sm font-medium"><%= offer.company_name %></span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-xs text-blue-600 truncate max-w-xs">
+                            <a href="<%= offer.link %>" target="_blank"><%= offer.link %></a>
+                        </td>
+                    </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Screenshot & Meta -->
+        <div class="space-y-8">
+            <div class="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
+                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                    <h3 class="text-lg font-medium text-gray-900">Скриншот витрины</h3>
+                </div>
+                <div class="p-4">
+                    <a href="<%= latest.run.screenshot_path %>" target="_blank">
+                        <img src="<%= latest.run.screenshot_path %>" class="w-full rounded border border-gray-200 shadow-sm hover:opacity-90 transition-opacity">
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <% } else { %>
+    <div class="text-center py-20 bg-white shadow rounded-lg border border-gray-100">
+        <p class="text-gray-500">Данные по этой витрине еще не собраны.</p>
+        <button onclick="runScraperSingle(<%= showcase.id %>)" class="mt-4 px-4 py-2 bg-manus-accent text-white rounded-md">Запустить сейчас</button>
+    </div>
+    <% } %>
+</main>
+
+<script>
+    async function runScraperSingle(id) {
+        // Логика аналогична run-all
+    }
+</script>
+</body>
+</html>

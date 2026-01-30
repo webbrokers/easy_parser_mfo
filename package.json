@@ -1,0 +1,42 @@
+{
+  "name": "easy_parser_mfo",
+  "version": "1.0.0",
+  "description": "Система для ежедневного мониторинга позиций офферов на сайтах-витринах с хранением статистики в SQLite и удобной админ-панелью.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:css": "npx tailwindcss -i ./public/css/input.css -o ./public/css/style.css",
+    "watch:css": "npx tailwindcss -i ./public/css/input.css -o ./public/css/style.css --watch",
+    "dev": "nodemon src/index.js",
+    "start": "node src/index.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webbrokers/easy_parser_mfo.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/webbrokers/easy_parser_mfo/issues"
+  },
+  "homepage": "https://github.com/webbrokers/easy_parser_mfo#readme",
+  "dependencies": {
+    "axios": "^1.13.4",
+    "better-sqlite3": "^12.6.2",
+    "chart.js": "^4.5.1",
+    "dotenv": "^17.2.3",
+    "ejs": "^4.0.1",
+    "express": "^5.2.1",
+    "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "puppeteer": "^24.36.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18"
+  }
+}
