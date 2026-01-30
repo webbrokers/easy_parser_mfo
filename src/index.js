@@ -58,6 +58,26 @@ app.get('/showcase/:id', async (req, res) => {
     }
 });
 
+app.get('/offers', async (req, res) => {
+    try {
+        const offers = AnalyticsService.getAveragePositions();
+        res.render('offers', { title: 'Все офферы', offers });
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
+app.get('/settings', async (req, res) => {
+    try {
+        const showcases = db.prepare('SELECT * FROM showcases').all();
+        res.render('settings', { title: 'Настройки', showcases });
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Internal Server Error');
+    }
+});
+
 // Планировщик ежедневного парсинга (03:00)
 cron.schedule('0 3 * * *', () => {
     dailyTask();
@@ -77,10 +97,31 @@ app.post('/api/run-all', async (req, res) => {
     res.json({ success: true, results });
 });
 
+// Добавление новой витрины
+app.post('/api/showcases', express.urlencoded({ extended: true }), (req, res) => {
+    const { name, url } = req.body;
+    try {
+        db.prepare('INSERT INTO showcases (name, url) VALUES (?, ?)').run(name, url);
+        res.redirect('/settings');
+    } catch (e) {
+        res.status(500).send('Ошибка при добавлении: ' + e.message);
+    }
+});
+
+// Удаление витрины
+app.post('/api/showcases/delete/:id', (req, res) => {
+    try {
+        db.prepare('DELETE FROM showcases WHERE id = ?').run(req.params.id);
+        res.redirect('/settings');
+    } catch (e) {
+        res.status(500).send('Ошибка при удалении');
+    }
+});
+
 // Запуск сервера
 if (require.main === module) {
-    app.listen(PORT, HOST, () => {
-        console.log(`Сервер запущен на http://${HOST}:${PORT}`);
+    app.listen(PORT, () => {
+        console.log(`Сервер запущен на порту ${PORT}`);
     });
 }
 

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <%- include('partials/header') %>
+</head>
+<body class="bg-gray-50 text-manus-text font-inter">
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <header class="mb-8 flex justify-between items-end">
+            <div>
+                <h1 class="text-3xl font-bold mb-2">Настройки</h1>
+                <p class="text-gray-500">Управление списком витрин для мониторинга</p>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Список витрин -->
+            <div class="lg:col-span-2">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div class="px-6 py-4 bg-gray-50 border-b border-gray-100 font-semibold">Список активных витрин</div>
+                    <ul class="divide-y divide-gray-100">
+                        <% showcases.forEach(site => { %>
+                            <li class="px-6 py-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                <div>
+                                    <h3 class="font-bold text-lg"><%= site.name %></h3>
+                                    <p class="text-sm text-gray-400 font-mono"><%= site.url %></p>
+                                </div>
+                                <div class="flex items-center space-x-4">
+                                    <form action="/api/showcases/delete/<%= site.id %>" method="POST" onsubmit="return confirm('Удалить эту витрину и всю статистику по ней?')">
+                                        <button type="submit" class="text-red-400 hover:text-red-600 p-2 border border-red-100 rounded-xl hover:bg-red-50 transition-all">
+                                            Удалить
+                                        </button>
+                                    </form>
+                                </div>
+                            </li>
+                        <% }); %>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Форма добавления -->
+            <div class="lg:col-span-1">
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-8">
+                    <h2 class="text-xl font-bold mb-6">Добавить витрину</h2>
+                    <form action="/api/showcases" method="POST" class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-semibold mb-2 text-gray-600">Название</label>
+                            <input type="text" name="name" required placeholder="Например: Robot Zaymer" class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-manus-accent/20 focus:border-manus-accent transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-semibold mb-2 text-gray-600">URL</label>
+                            <input type="url" name="url" required placeholder="https://site.ru/..." class="w-full px-4 py-3 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-manus-accent/20 focus:border-manus-accent transition-all">
+                        </div>
+                        <button type="submit" class="w-full bg-manus-text text-white font-bold py-4 rounded-xl hover:bg-manus-accent transition-all shadow-lg shadow-gray-200">
+                            Сохранить витрину
+                        </button>
+                    </form>
+                    
+                    <div class="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-100 italic text-sm text-blue-600 leading-relaxed">
+                        После добавления новой витрины рекомендуется запустить ручной парсинг из раздела Дашборд.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

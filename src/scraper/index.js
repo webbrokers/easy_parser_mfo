@@ -30,7 +30,18 @@ async function parseShowcase(showcaseId) {
         const screenshotName = `${domainSlug}_${timestamp}.png`;
         
         const screenshotPath = path.join(__dirname, '../../public/screenshots', screenshotName);
-        await page.screenshot({ path: screenshotPath, fullPage: true });
+        
+        // Создаем папку, если её нет
+        const screenshotDir = path.dirname(screenshotPath);
+        if (!fs.existsSync(screenshotDir)) {
+            fs.mkdirSync(screenshotDir, { recursive: true });
+        }
+
+        try {
+            await page.screenshot({ path: screenshotPath, fullPage: true });
+        } catch (e) {
+            console.error('Не удалось сделать скриншот:', e.message);
+        }
 
         // Лог запуска
         const runResult = db.prepare(`
@@ -43,24 +54,28 @@ async function parseShowcase(showcaseId) {
         // Логика парсинга офферов
         const offers = await page.evaluate(() => {
             const results = [];
+            const keywords = ['деньги', 'заявку', 'получить', 'оформить', 'взять', 'займ', 'кредит', 'на карту', 'выплата'];
             
+            function isMoneyLink(el) {
+                const text = (el.textContent || el.innerText || '').toLowerCase();
+                return keywords.some(k => text.includes(k));
+            }
+
             // 1. Поиск в попапах / плавающих блоках (B1, B2...)
-            // Часто у них есть классы popup, modal, banner, sticky
-            const popupSelectors = ['.popup', '.modal', '.banner', '[class*="sticky"]', '[id*="popup"]'];
+            const popupSelectors = ['.popup', '.modal', '.banner', '[class*="sticky"]', '[id*="popup"]', '[class*="modal"]'];
             let bIndex = 1;
             
             popupSelectors.forEach(selector => {
                 const elements = document.querySelectorAll(selector);
                 elements.forEach(el => {
-                    const links = el.querySelectorAll('a');
+                    const links = Array.from(el.querySelectorAll('a, button'));
                     links.forEach(link => {
-                        const text = link.innerText.toLowerCase();
-                        if (text.includes('деньги') || text.includes('заявку') || text.includes('получить')) {
+                        if (isMoneyLink(link)) {
                             const img = el.querySelector('img');
                             results.push({
                                 position: bIndex,
-                                company_name: img?.alt || el.innerText.split('\n')[0] || "Banner Offer",
-                                link: link.href,
+                                company_name: img?.alt || el.innerText.split('\n')[0].trim() || "Banner Offer",
+                                link: link.href || link.onclick?.toString() || "#",
                                 image_url: img?.src || null,
                                 placement_type: `b${bIndex++}`
                             });
@@ -70,35 +85,20 @@ async function parseShowcase(showcaseId) {
             });
 
             // 2. Поиск в основном контенте
-            const offerBlocks = document.querySelectorAll('.offer-item, .card, .row, div[class*="offer"]');
+            const offerBlocks = document.querySelectorAll('.offer-item, .card, .row, div[class*="offer"], div[class*="item"], div[class*="mfo"]');
             let mainPos = 1;
 
             if (offerBlocks.length > 0) {
                 offerBlocks.forEach(block => {
-                    const link = block.querySelector('a');
-                    if (link && (link.innerText.includes('деньги') || link.innerText.includes('получить'))) {
+                    const links = Array.from(block.querySelectorAll('a'));
+                    const moneyLink = links.find(l => isMoneyLink(l));
+                    
+                    if (moneyLink) {
                         const img = block.querySelector('img');
                         results.push({
                             position: mainPos++,
-                            company_name: img?.alt || block.innerText.split('\n')[0] || "Offer",
-                            link: link.href,
-                            image_url: img?.src || null,
-                            placement_type: 'main'
-                        });
-                    }
-                });
-            } else {
-                // Фоллбек на старую логику, если блоки не найдены
-                const allLinks = Array.from(document.querySelectorAll('a'));
-                allLinks.forEach(link => {
-                    const text = link.innerText.toLowerCase();
-                    if ((text.includes('деньги') || text.includes('получить')) && link.href.includes('http')) {
-                        const parent = link.parentElement.parentElement;
-                        const img = parent.querySelector('img');
-                        results.push({
-                            position: mainPos++,
-                            company_name: img?.alt || "Unknown",
-                            link: link.href,
+                            company_name: img?.alt || block.textContent.split('\n').map(s => s.trim()).filter(s => s.length > 2)[0] || "Offer",
+                            link: moneyLink.href,
                             image_url: img?.src || null,
                             placement_type: 'main'
                         });
@@ -106,8 +106,40 @@ async function parseShowcase(showcaseId) {
                 });
             }
 
+            // 3. Фоллбек: если ничего не нашли или нашли мало, ищем по всем ссылкам
+            if (results.length < 2) {
+                const allLinks = Array.from(document.querySelectorAll('a'));
+                allLinks.forEach(link => {
+                    if (isMoneyLink(link) && link.href.includes('http')) {
+                        // Пытаемся найти родительский контейнер
+                        let parent = link.parentElement;
+                        for (let i = 0; i < 3; i++) {
+                            if (!parent) break;
+                            const text = parent.textContent.length;
+                            if (text > 20 && text < 1000) break;
+                            parent = parent.parentElement;
+                        }
+                        
+                        const img = parent?.querySelector('img');
+                        const alreadyFound = results.some(r => r.link === link.href);
+                        
+                        if (!alreadyFound) {
+                            results.push({
+                                position: mainPos++,
+                                company_name: img?.alt || link.textContent.trim() || "Unknown",
+                                link: link.href,
+                                image_url: img?.src || null,
+                                placement_type: 'main'
+                            });
+                        }
+                    }
+                });
+            }
+
             return results;
         });
+
+        console.log(`[Scraper] Найдено офферов: ${offers.length}`);
 
         // Сохранение в БД
         const insertOffer = db.prepare(`
