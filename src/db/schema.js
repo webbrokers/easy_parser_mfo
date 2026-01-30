@@ -1,8 +1,17 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const dbPath = path.join(__dirname, '../../database.sqlite');
-const db = new Database(dbPath);
+const isVercel = process.env.VERCEL === '1';
+const dbPath = isVercel 
+    ? '/tmp/database.sqlite' 
+    : path.join(__dirname, '../../database.sqlite');
+
+let db;
+try {
+    db = new Database(dbPath);
+} catch (err) {
+    console.error('Failed to connect to database:', err);
+}
 
 // Таблица витрин (сайтов)
 db.prepare(`
