@@ -129,6 +129,13 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                 if (stopWords.some(s => low === s || low.includes(s) && low.length < 20)) return true;
                 if (/^[0-9\s%рубдней.]+$/.test(low)) return true; // Только цифры, валюты, знаки
                 if (low.startsWith('до ') || low.startsWith('от ')) return true; // Суммы
+                
+                // Фильтр для мусорных имен из файлов (хеши, длинные ID)
+                // Пример: "n 56cd8a16afda9", "logo moneza e175...", "ekva e175..."
+                if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true; 
+                if (low.includes('logo') && /[a-z0-9]{5,}/.test(low)) return true;
+                if (low.length > 15 && !/[а-яА-ЯёЁ]/.test(low) && /[0-9]{3,}/.test(low)) return true; // Длинные латинские строки с цифрами без кириллицы
+
                 return false;
             }
 

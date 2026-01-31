@@ -38,7 +38,8 @@ app.get('/', async (req, res) => {
         
         const stats = {
             totalShowcases: showcases.length,
-            totalOffers: db.prepare('SELECT count(*) as count FROM offer_stats').get().count,
+            // Считаем уникальные МФО, а не просто количество записей
+            totalOffers: db.prepare('SELECT count(DISTINCT company_name) as count FROM offer_stats').get().count,
             runsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now')").get().count,
             errorsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now') AND status = 'error'").get().count
         };
@@ -48,7 +49,7 @@ app.get('/', async (req, res) => {
             SELECT 
                 MIN(run_date) as start_time,
                 MAX(run_date) as end_time,
-                COUNT(*) as total_runs
+                COUNT(DISTINCT showcase_id) as total_runs
             FROM parsing_runs
             WHERE date(run_date) = (
                 SELECT date(run_date) 
