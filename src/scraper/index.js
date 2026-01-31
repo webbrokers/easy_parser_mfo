@@ -92,18 +92,14 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         
         const runId = runResult.lastInsertRowid;
 
-        // 2.6 Ожидаем стабилизации сети (особенно важно для Sravni)
+        // 2.6 Ожидаем стабилизации сети (Sravni: уменьшен таймаут по просьбе)
         const isSravni = showcase.url.includes('sravni.ru');
         try {
             await page.waitForNetworkIdle({ 
-                idleTime: isSravni ? 3000 : 1000, 
-                timeout: isSravni ? 20000 : 5000 
+                idleTime: 1000, 
+                timeout: isSravni ? 5000 : 5000 
             });
-            // Даем Sravni еще больше времени на отрисовку iframe/динамического контента
-            if (isSravni) {
-                console.log(`[Scraper] Sravni.ru обнаружен, дополнительная задержка...`);
-                await new Promise(r => setTimeout(r, 5000));
-            }
+            // Убрана дополнительная задержка для Sravni
         } catch (e) {
             console.log(`[Scraper] Timeout waiting for network idle, continuing...`);
         }
@@ -256,6 +252,39 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
             return final;
         }, brandNames);
+
+        // --- DOUBLE LOGIC: FALLBACK FOR ODOBRENZAYM (CredyShop) ---
+        if (data.length === 0) {
+            console.log(`[Scraper] Основной алгоритм не нашел офферов. Пробую Fallback (JSON)...`);
+            
+            const fallbackData = await page.evaluate(() => {
+                try {
+                    const appData = document.getElementById('app-data');
+                    if (!appData) return [];
+                    
+                    const json = JSON.parse(appData.textContent);
+                    // Ищем блок с офферами
+                    const offersBlock = json.blocks && json.blocks.find(b => b.block_type === 'offers');
+                    if (!offersBlock || !offersBlock.offers) return [];
+
+                    const baseUrl = json.offers_logo_base_url || "https://offers.credilead.ru/";
+
+                    return offersBlock.offers.map(o => ({
+                        company_name: o.site_name || o.name,
+                        link: o.url,
+                        image_url: o.logo ? (baseUrl + o.logo) : null,
+                        placement_type: 'main'
+                    }));
+                } catch (e) {
+                    return [];
+                }
+            });
+
+            if (fallbackData.length > 0) {
+                console.log(`[Scraper] Fallback успешно нашел ${fallbackData.length} офферов!`);
+                data.push(...fallbackData);
+            }
+        }
 
         console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
         
