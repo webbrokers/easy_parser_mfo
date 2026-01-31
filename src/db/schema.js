@@ -19,6 +19,7 @@ if (!db) {
 }
 
 // Таблица витрин (сайтов)
+db.prepare(`
     CREATE TABLE IF NOT EXISTS showcases (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         url TEXT NOT NULL UNIQUE,
