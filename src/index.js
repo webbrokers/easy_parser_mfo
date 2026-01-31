@@ -226,6 +226,26 @@ app.post('/api/run-selected-showcases', async (req, res) => {
 });
 
 // API: Генерация тестовых данных за 7 дней
+app.post('/api/clear-all-data', async (req, res) => {
+    try {
+        console.log('[API] Удаление всех данных...');
+        
+        // Удаляем все данные в транзакции
+        db.transaction(() => {
+            // Удаляем все офферы
+            db.prepare('DELETE FROM offer_stats').run();
+            // Удаляем все запуски парсинга
+            db.prepare('DELETE FROM parsing_runs').run();
+        })();
+        
+        console.log('[API] Все данные успешно удалены');
+        res.json({ success: true, message: 'Все данные успешно удалены' });
+    } catch (e) {
+        console.error('[API] Ошибка при удалении данных:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/seed-test-data', async (req, res) => {
     try {
         console.log('[API] Генерация тестовых данных...');
