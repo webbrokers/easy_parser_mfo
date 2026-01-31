@@ -12,7 +12,24 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Принудительно слушаем на всех интерфейсах для облака
+// Принудительно слушаем на всех интерфейсах для облака
 const HOST = '0.0.0.0';
+
+// --- STARTUP MAINTENANCE ---
+try {
+    console.log('[Startup] Выполняю обслуживание базы...');
+    // 1. Отключаем Sravni.ru (по запросу пользователя)
+    const info = db.prepare("UPDATE showcases SET is_active = 0 WHERE url LIKE '%sravni.ru%' AND is_active = 1").run();
+    if (info.changes > 0) console.log(`[Startup] Sravni.ru отключен (${info.changes} записей)`);
+
+    // 2. Очистка старых логов (кеш ошибок)
+    // Оставляем только свежие (последние 24 часа), остальное удаляем, чтобы не путать
+    // Или можно удалить вообще всё, как просили "сбросить кеш"
+    db.prepare("DELETE FROM parsing_runs WHERE status = 'error'").run(); 
+    console.log('[Startup] Логи ошибок очищены');
+} catch (e) {
+    console.error('[Startup] Ошибка обслуживания:', e);
+}
 
 // Настройка EJS и статики
 app.set('view engine', 'ejs');
