@@ -188,7 +188,7 @@ const AnalyticsService = {
     // Получить данные конкретного запуска
     getShowcaseRun: (runId) => {
         const run = db.prepare(`
-            SELECT id, run_date, screenshot_path 
+            SELECT id, run_date, screenshot_path, parsing_method 
             FROM parsing_runs 
             WHERE id = ? AND status = 'success'
         `).get(runId);

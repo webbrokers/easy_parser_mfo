@@ -413,13 +413,51 @@ async function parseShowcase(showcaseId, retryCount = 0) {
     }, brandNames, customSelector);
 
     // --- DOUBLE LOGIC: FALLBACK V2 (OdobrenZaym & Co) ---
+    let fallbackData = null;
     if (data.length === 0) {
       console.log(
         `[Scraper] Основной алгоритм (0 офферов). Запускаю Fallback (JSON + SimpleDOM)...`,
       );
 
-      const fallbackData = await page.evaluate(() => {
+      fallbackData = await page.evaluate((customSelector) => {
         const results = [];
+        let method = null;
+
+        function buildCustomTarget(rawValue) {
+          const raw = (rawValue || "").trim();
+          if (!raw) return null;
+
+          if (raw.startsWith("<")) {
+            try {
+              const doc = new DOMParser().parseFromString(raw, "text/html");
+              const root = doc.body.firstElementChild;
+              if (!root) return null;
+
+              const tag = root.tagName.toLowerCase();
+              const classes = Array.from(root.classList);
+              const selector = classes.length
+                ? `${tag}.${classes.join(".")}`
+                : tag;
+
+              const classSet = new Set();
+              doc.body.querySelectorAll("*").forEach((el) => {
+                el.classList.forEach((c) => classSet.add(c));
+              });
+
+              return {
+                selector,
+                requiredClasses: Array.from(classSet),
+                isTemplate: true,
+              };
+            } catch (e) {
+              return null;
+            }
+          }
+
+          return { selector: raw, requiredClasses: [], isTemplate: false };
+        }
+
+        const customConfig = buildCustomTarget(customSelector);
 
         // 1. Попытка через JSON (CrediyShop)
         try {
@@ -440,6 +478,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                   placement_type: "main",
                 });
               });
+              method = "JSON";
             }
           }
         } catch (e) {
@@ -450,8 +489,15 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         // Ищем тупо по классам "card" или "item" и берем первую ссылку
         if (results.length === 0) {
           // 0. Если был задан кастомный селектор, но основной проход ничего не нашел (редко, но бывает)
-          if (customSelector && customSelector.trim()) {
-             const customElements = document.querySelectorAll(customSelector);
+          if (customConfig && customConfig.selector) {
+             let customElements = Array.from(document.querySelectorAll(customConfig.selector));
+             if (customConfig.requiredClasses.length > 0) {
+               customElements = customElements.filter((el) =>
+                 customConfig.requiredClasses.every(
+                   (cls) => el.classList.contains(cls) || el.querySelector(`.${cls}`),
+                 ),
+               );
+             }
              customElements.forEach((c) => {
                 const linkEl = c.querySelector('a[href*="http"], a[href^="/"]');
                 const imgEl = c.querySelector("img");
@@ -475,6 +521,9 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                   });
                 }
              });
+             if (results.length > 0 && !method) {
+               method = "DOM (Custom Selector Fallback)";
+             }
           }
 
           // 2. SimpleDOM Fallback (Если JSON не сработал)
@@ -500,21 +549,48 @@ async function parseShowcase(showcaseId, retryCount = 0) {
               });
             }
           });
+          if (results.length > 0 && !method) {
+            method = "DOM (Simple Fallback)";
+          }
         }
         } // Closing the inner if (results.length === 0)
 
-        return results;
-      });
+        return { results, method };
+      }, customSelector);
 
-      if (fallbackData.length > 0) {
+      if (fallbackData.results && fallbackData.results.length > 0) {
         console.log(
-          `[Scraper] Fallback спас ситуацию! Найдено: ${fallbackData.length}`,
+          `[Scraper] Fallback спас ситуацию! Найдено: ${fallbackData.results.length}`,
         );
-        data.push(...fallbackData);
+        data.push(...fallbackData.results);
       }
     }
 
     console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
+
+    // Определяем метод парсинга
+    let parsingMethod = null;
+    // Проверяем, использовался ли fallback (данные были добавлены из fallback)
+    const usedFallback = fallbackData && fallbackData.results && fallbackData.results.length > 0;
+    
+    if (usedFallback && fallbackData.method) {
+      // Если использовался fallback
+      parsingMethod = fallbackData.method;
+    } else if (data.length > 0) {
+      // Если основной алгоритм дал результаты
+      if (customSelector && customSelector.trim()) {
+        parsingMethod = "DOM (Custom Selector)";
+      } else {
+        parsingMethod = "DOM (Cluster Match v4.0)";
+      }
+    }
+
+    // Обновляем запись с методом парсинга
+    if (parsingMethod) {
+      db.prepare(
+        `UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`
+      ).run(parsingMethod, runId);
+    }
 
     // Отладка для Sravni
     if (isSravni && data.length === 0) {

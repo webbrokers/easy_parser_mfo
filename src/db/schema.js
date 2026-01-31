@@ -37,6 +37,13 @@ try {
     // Колонка уже существует, игнорируем ошибку
 }
 
+// Миграция: добавляем parsing_method, если его нет (для старых БД)
+try {
+    db.prepare("ALTER TABLE parsing_runs ADD COLUMN parsing_method TEXT").run();
+} catch (e) {
+    // Колонка уже существует, игнорируем ошибку
+}
+
 // Лог запусков парсинга
 db.prepare(`
     CREATE TABLE IF NOT EXISTS parsing_runs (
