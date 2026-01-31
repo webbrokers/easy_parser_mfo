@@ -37,13 +37,6 @@ try {
     // Колонка уже существует, игнорируем ошибку
 }
 
-// Миграция: добавляем parsing_method, если его нет (для старых БД)
-try {
-    db.prepare("ALTER TABLE parsing_runs ADD COLUMN parsing_method TEXT").run();
-} catch (e) {
-    // Колонка уже существует, игнорируем ошибку
-}
-
 // Лог запусков парсинга
 db.prepare(`
     CREATE TABLE IF NOT EXISTS parsing_runs (
@@ -56,6 +49,18 @@ db.prepare(`
         FOREIGN KEY (showcase_id) REFERENCES showcases(id)
     )
 `).run();
+
+// Миграция: добавляем parsing_method, если его нет (для старых БД)
+// ВАЖНО: выполняется ПОСЛЕ создания таблицы
+try {
+    db.prepare("ALTER TABLE parsing_runs ADD COLUMN parsing_method TEXT").run();
+    console.log('[DB] Миграция: колонка parsing_method добавлена в parsing_runs');
+} catch (e) {
+    // Колонка уже существует, игнорируем ошибку
+    if (!e.message.includes('duplicate column')) {
+        console.warn('[DB] Предупреждение при миграции parsing_method:', e.message);
+    }
+}
 
 // Статистика офферов
 db.prepare(`

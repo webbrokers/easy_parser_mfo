@@ -587,9 +587,14 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
     // Обновляем запись с методом парсинга
     if (parsingMethod) {
-      db.prepare(
-        `UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`
-      ).run(parsingMethod, runId);
+      try {
+        db.prepare(
+          `UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`
+        ).run(parsingMethod, runId);
+      } catch (e) {
+        // Если колонка не существует, просто игнорируем ошибку
+        console.warn('[Scraper] Не удалось сохранить метод парсинга:', e.message);
+      }
     }
 
     // Отладка для Sravni
