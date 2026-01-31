@@ -132,7 +132,8 @@ async function parseShowcase(showcaseId, retryCount = 0) {
     const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
 
     // 3. Логика парсинга офферов (Cluster Match v4.0)
-    const data = await page.evaluate((knownBrands) => {
+    const customSelector = showcase.custom_selector || '';
+    const data = await page.evaluate((knownBrands, customSelector) => {
       const results = [];
       const keywords = [
         "займ",
@@ -222,7 +223,8 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       )[0]?.[0];
 
       const processedContainers = new Set();
-      const customSelector = '${showcase.custom_selector || ''}'; // Внедряем селектор
+      // const customSelector = '${showcase.custom_selector || ''}'; // Removed: causing syntax error
+      // customSelector passed as argument
 
       let targets = [];
 
@@ -407,7 +409,8 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       });
 
       return final;
-    }, brandNames);
+      return final;
+    }, brandNames, customSelector);
 
     // --- DOUBLE LOGIC: FALLBACK V2 (OdobrenZaym & Co) ---
     if (data.length === 0) {
