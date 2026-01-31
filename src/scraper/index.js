@@ -501,6 +501,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
             }
           });
         }
+        } // Closing the inner if (results.length === 0)
 
         return results;
       });
