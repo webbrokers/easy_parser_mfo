@@ -65,120 +65,137 @@ async function parseShowcase(showcaseId) {
         
         const runId = runResult.lastInsertRowid;
 
-        // 3. Логика парсинга офферов (Container-Based Logic v2.0)
+        // 3. Логика парсинга офферов (Container-Based Logic v3.0 - "Smart Card Detector")
         const data = await page.evaluate(() => {
             const results = [];
-            const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм'];
-            const stopWords = ['получить деньги', 'оформить заявку', 'взять займ', 'подробнее', 'подать заявку', 'получить на карту', 'выплата', 'деньги на карту'];
+            const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм', 'заполнить'];
+            const stopWords = ['получить деньги', 'оформить заявку', 'взять займ', 'подробнее', 'подать заявку', 'получить на карту', 'выплата', 'деньги на карту', 'сумма', 'срок', 'ставка', 'одобрение', 'заявка'];
             
-            function hasKeyword(text) {
+            function isMoney(text) {
                 const low = (text || "").toLowerCase().trim();
                 return keywords.some(k => low.includes(k));
             }
 
-            function isStopWord(text) {
+            function isTrashName(text) {
                 const low = (text || "").toLowerCase().trim();
-                return stopWords.some(s => low === s || low.includes(s) && low.length < 20);
+                if (!low || low.length < 2) return true;
+                if (stopWords.some(s => low === s || low.includes(s) && low.length < 20)) return true;
+                if (/^[0-9\s%рубдней.]+$/.test(low)) return true; // Только цифры, валюты, знаки
+                if (low.startsWith('до ') || low.startsWith('от ')) return true; // Суммы
+                return false;
             }
 
             const processedContainers = new Set();
-            const actionElements = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'));
             
-            actionElements.forEach(el => {
+            // 1. Ищем все ссылки и элементы, которые выглядят как кнопки
+            const targets = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'));
+            
+            targets.forEach(el => {
                 const text = el.innerText || el.textContent || "";
-                const href = el.href || el.getAttribute('href') || "";
                 
-                // Если это кнопка или ссылка с целевым действием
-                if (hasKeyword(text) && (href.length > 3 || el.tagName === 'BUTTON')) {
-                    // Ищем контейнер карточки (проходим вверх до 8 уровней)
-                    let container = el.parentElement;
-                    let foundCard = null;
+                if (isMoney(text)) {
+                    // Ищем контейнер карточки
+                    let card = null;
+                    let curr = el;
                     
-                    for (let i = 0; i < 8; i++) {
-                        if (!container) break;
-                        // Признаки карточки: наличие картинки и определенного размера, или специфичные классы
-                        const hasImg = container.querySelector('img');
-                        const rect = container.getBoundingClientRect();
-                        const isCardLike = rect.height > 80 && rect.width > 150;
+                    for (let i = 0; i < 10; i++) {
+                        if (!curr || curr === document.body) break;
                         
-                        // Если в контейнере есть картинка и он похож на карточку
-                        if (hasImg && isCardLike) {
-                            foundCard = container;
-                            // Если нашли контейнер с явным классом "card" или "offer", берем его как финальный
-                            if (container.className.toLowerCase().includes('card') || container.className.toLowerCase().includes('offer')) break;
+                        const className = (curr.className || "").toString().toLowerCase();
+                        const tagName = curr.tagName.toLowerCase();
+                        const rect = curr.getBoundingClientRect();
+                        
+                        // Признак карточки: класс содержит card/offer/item или это ссылка-обертка с картинкой
+                        const isCardClass = className.includes('card') || className.includes('offer') || className.includes('item');
+                        const hasImg = curr.querySelector('img');
+                        const isSignificant = rect.height > 80 && rect.width > 120;
+
+                        if ((isCardClass || (tagName === 'a' && hasImg)) && isSignificant) {
+                            card = curr;
+                            // Если нашли явный класс из примеров пользователя, останавливаемся сразу
+                            if (className.includes('lightweightcardview_container')) break;
+                            if (className.includes('offer_usp_inside')) break;
                         }
-                        container = container.parentElement;
+                        curr = curr.parentElement;
                     }
 
-                    const card = foundCard || el.parentElement;
-                    if (processedContainers.has(card)) return;
-                    processedContainers.add(card);
+                    if (card && !processedContainers.has(card)) {
+                        processedContainers.add(card);
+                        
+                        const img = card.querySelector('img');
+                        let name = "";
 
-                    // --- Извлечение данных из карточки ---
-                    const img = card.querySelector('img');
-                    let companyName = "";
+                        // -- Извлекаем название МФО --
+                        // 1. Из альта картинки
+                        if (img) name = img.alt || img.title || "";
+                        
+                        // 2. Из имени файла картинки (часто там бренд)
+                        if (img && (!name || isTrashName(name))) {
+                            const src = img.src || "";
+                            const fileName = src.split('/').pop().split('.')[0].replace(/[-_]/g, ' ');
+                            if (fileName.length > 3 && !isTrashName(fileName)) name = fileName;
+                        }
 
-                    // 1. Пытаемся взять имя из логотипа (самый надежный способ)
-                    if (img) {
-                        companyName = img.alt || img.title || "";
-                    }
-
-                    // 2. Если в логотипе пусто, ищем заголовки или жирный текст
-                    if (!companyName || isStopWord(companyName)) {
-                        const headings = Array.from(card.querySelectorAll('h1, h2, h3, h4, h5, h6, b, strong, [class*="title"], [class*="name"]'));
-                        for (const h of headings) {
-                            const val = h.innerText.trim();
-                            if (val && !isStopWord(val) && val.length > 2 && val.length < 40) {
-                                companyName = val;
-                                break;
+                        // 3. Из заголовков внутри
+                        if (!name || isTrashName(name)) {
+                            const heads = Array.from(card.querySelectorAll('h1, h2, h3, h4, b, strong, [class*="title"], [class*="name"]'));
+                            for (const h of heads) {
+                                const val = h.innerText.trim();
+                                if (val && !isTrashName(val)) {
+                                    name = val;
+                                    break;
+                                }
                             }
                         }
+
+                        // 4. Из всех текстов (первое не-мусорное)
+                        if (!name || isTrashName(name)) {
+                            const allText = card.innerText.split('\n').map(t => t.trim()).filter(t => t.length > 2);
+                            name = allText.find(t => !isTrashName(t)) || "Offer";
+                        }
+
+                        // Финальная очистка
+                        name = name.split(/[.,!?;|]/)[0].substring(0, 35).trim();
+                        if (isTrashName(name)) name = "Offer";
+
+                        const href = el.href || el.getAttribute('href') || card.href || card.getAttribute('href') || "";
+                        const finalLink = href.startsWith('http') ? href : window.location.origin + (href.startsWith('/') ? href : '/' + href);
+
+                        results.push({
+                            company_name: name,
+                            link: finalLink,
+                            image_url: img?.src || null,
+                            placement_type: 'main'
+                        });
                     }
-
-                    // 3. Крайний случай - берем первую строку текста, которая не является стоп-словом
-                    if (!companyName || isStopWord(companyName)) {
-                        const lines = card.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
-                        companyName = lines.find(l => !isStopWord(l)) || "Offer";
-                    }
-
-                    // Чистка финального имени
-                    companyName = companyName.split(/[.,!?;|]/)[0].substring(0, 40).trim();
-                    if (isStopWord(companyName)) companyName = "Offer";
-
-                    const finalLink = href.startsWith('http') ? href : window.location.origin + (href.startsWith('/') ? href : '/' + href);
-
-                    results.push({
-                        company_name: companyName,
-                        link: finalLink,
-                        image_url: img?.src || null,
-                        placement_type: 'main'
-                    });
                 }
             });
 
-            // Финальная фильтрация: убираем дубли по имени и те, где имя осталось стоп-словом
-            const finalData = [];
+            // Дедупликация по имени МФО
+            const final = [];
             const seen = new Set();
             results.forEach(item => {
                 const key = item.company_name.toLowerCase();
                 if (!seen.has(key) && item.company_name !== "Offer") {
                     seen.add(key);
-                    finalData.push(item);
+                    final.push(item);
                 }
             });
 
-            return finalData;
+            return final;
         });
 
-        console.log(`[Scraper] Финальный результат: ${data.length} офферов для ${showcase.url}`);
+        console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
 
+        const { NormalizationService } = require('../services/normalization');
         const insertOffer = db.prepare(`
             INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)
             VALUES (?, ?, ?, ?, ?, ?)
         `);
 
         data.forEach((offer, index) => {
-            insertOffer.run(runId, index + 1, offer.company_name, offer.link, offer.image_url, offer.placement_type);
+            const normalizedName = NormalizationService.normalize(offer.company_name, offer.link);
+            insertOffer.run(runId, index + 1, normalizedName, offer.link, offer.image_url, offer.placement_type);
         });
 
         return { success: true, count: data.length };

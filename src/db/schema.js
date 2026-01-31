@@ -64,7 +64,9 @@ if (count === 0) {
         { url: 'https://robot-zaymer.ru/', name: 'Robot Zaymer' },
         { url: 'https://zyamer.ru/', name: 'Zyamer Главная' },
         { url: 'https://zyamer.ru/smart/', name: 'Zyamer Smart' },
-        { url: 'https://zyamer.ru/popzaym/', name: 'Zyamer Popzaym' }
+        { url: 'https://zyamer.ru/popzaym/', name: 'Zyamer Popzaym' },
+        { url: 'https://odobrenzaym.ru/', name: 'Odobren Zaym' },
+        { url: 'https://www.sravni.ru/zaimy/', name: 'Sravni.ru Zaimy' }
     ];
     
     const insert = db.prepare('INSERT INTO showcases (url, name) VALUES (?, ?)');

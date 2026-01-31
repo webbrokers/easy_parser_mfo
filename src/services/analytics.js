@@ -1,15 +1,37 @@
 const db = require('../db/schema');
 
 const AnalyticsService = {
-    // Получить среднюю позицию для каждого оффера
+    // Получить среднюю позицию для каждого оффера (с нормализацией брендов)
     getAveragePositions: () => {
-        return db.prepare(`
-            SELECT company_name, AVG(position) as avg_pos, COUNT(*) as appearances
+        const { NormalizationService } = require('./normalization');
+        const rawData = db.prepare(`
+            SELECT company_name, position, link
             FROM offer_stats
             WHERE placement_type = 'main'
-            GROUP BY company_name
-            ORDER BY avg_pos ASC
         `).all();
+
+        const brands = {};
+
+        rawData.forEach(row => {
+            const BrandName = NormalizationService.normalize(row.company_name, row.link);
+            if (!brands[BrandName]) {
+                brands[BrandName] = { 
+                    company_name: BrandName, 
+                    total_pos: 0, 
+                    appearances: 0 
+                };
+            }
+            brands[BrandName].total_pos += row.position;
+            brands[BrandName].appearances += 1;
+        });
+
+        return Object.values(brands)
+            .map(b => ({
+                company_name: b.company_name,
+                avg_pos: Math.round((b.total_pos / b.appearances) * 10) / 10,
+                appearances: b.appearances
+            }))
+            .sort((a, b) => a.avg_pos - b.avg_pos);
     },
 
     // Данные для графика (история позиций конкретных офферов)
