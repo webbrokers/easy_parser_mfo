@@ -62,6 +62,35 @@ const AnalyticsService = {
         `).all(run.id);
 
         return { run, offers };
+    },
+
+    // Получить последние ошибки за 24 часа
+    getErrorLogs: () => {
+        return db.prepare(`
+            SELECT pr.*, s.name as showcase_name
+            FROM parsing_runs pr
+            JOIN showcases s ON pr.showcase_id = s.id
+            WHERE pr.status = 'error'
+            AND pr.run_date >= datetime('now', '-24 hours')
+            ORDER BY pr.run_date DESC
+        `).all();
+    },
+
+    // Данные для графика (средняя позиция по дням за последние 7 дней)
+    getGlobalHistory: () => {
+        const history = db.prepare(`
+            SELECT 
+                strftime('%w', run_date) as weekday,
+                AVG(position) as avg_pos,
+                date(run_date) as run_day
+            FROM parsing_runs pr
+            JOIN offer_stats os ON pr.id = os.run_id
+            WHERE run_date >= date('now', '-7 days')
+            GROUP BY run_day
+            ORDER BY run_day ASC
+        `).all();
+
+        return history;
     }
 };
 

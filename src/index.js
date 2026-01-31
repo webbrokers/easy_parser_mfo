@@ -23,7 +23,16 @@ app.use(express.json());
 // Маршруты
 app.get('/', async (req, res) => {
     try {
-        const showcases = db.prepare('SELECT * FROM showcases').all();
+        const showcases = db.prepare(`
+            SELECT 
+                s.*,
+                (SELECT COUNT(*) FROM offer_stats WHERE run_id = (
+                    SELECT id FROM parsing_runs WHERE showcase_id = s.id AND status = 'success' ORDER BY run_date DESC LIMIT 1
+                )) as last_offers_count,
+                CAST((julianday('now') - julianday(s.created_at)) AS INTEGER) as days_active
+            FROM showcases s
+            ORDER BY s.id DESC
+        `).all();
         const avgPos = AnalyticsService.getAveragePositions();
         
         const stats = {
@@ -33,11 +42,14 @@ app.get('/', async (req, res) => {
             errorsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now') AND status = 'error'").get().count
         };
 
+        const globalHistory = AnalyticsService.getGlobalHistory();
+
         res.render('index', { 
             title: 'Дашборд', 
             showcases, 
             avgPos, 
-            stats 
+            stats,
+            globalHistory 
         });
     } catch (e) {
         console.error(e);
@@ -67,6 +79,16 @@ app.get('/offers', async (req, res) => {
     }
 });
 
+app.get('/logs', async (req, res) => {
+    try {
+        const errors = AnalyticsService.getErrorLogs();
+        res.render('logs', { title: 'Логи ошибок', errors });
+    } catch (e) {
+        console.error(e);
+        res.status(500).send('Error');
+    }
+});
+
 app.get('/settings', async (req, res) => {
     try {
         const showcases = db.prepare('SELECT * FROM showcases').all();
@@ -80,6 +102,34 @@ app.get('/settings', async (req, res) => {
 // Планировщик ежедневного парсинга (03:00)
 cron.schedule('0 3 * * *', () => {
     dailyTask();
+});
+
+// API для получения списка активных витрин
+app.get('/api/showcases/active', (req, res) => {
+    const sites = db.prepare('SELECT id, name FROM showcases WHERE is_active = 1').all();
+    res.json(sites);
+});
+
+// API для запуска парсинга одной витрины
+app.post('/api/run-showcase/:id', async (req, res) => {
+    try {
+        const result = await parseShowcase(req.params.id);
+        res.json({ success: true, ...result });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// API для переключения статуса витрины
+app.post('/api/showcase/:id/toggle', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { is_active } = req.body;
+        db.prepare('UPDATE showcases SET is_active = ? WHERE id = ?').run(is_active ? 1 : 0, id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
 
 // API для запуска парсинга
