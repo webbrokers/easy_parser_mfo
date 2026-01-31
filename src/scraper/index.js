@@ -65,7 +65,14 @@ async function parseShowcase(showcaseId) {
         
         const runId = runResult.lastInsertRowid;
 
-        // 3. Логика парсинга офферов (Container-Based Logic v3.0 - "Smart Card Detector")
+        // 2.5 Ожидаем стабилизации сети (важно для тяжелых сайтов вроде Sravni)
+        try {
+            await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 });
+        } catch (e) {
+            console.log(`[Scraper] Timeout waiting for network idle, continuing...`);
+        }
+
+        // 3. Логика парсинга офферов (Container-Based Logic v3.3 - "Stability Patch")
         const data = await page.evaluate(() => {
             const results = [];
             const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм', 'заполнить'];
@@ -112,9 +119,7 @@ async function parseShowcase(showcaseId) {
 
                         if ((isCardClass || (tagName === 'a' && hasImg)) && isSignificant) {
                             card = curr;
-                            // Если нашли явный класс из примеров пользователя, останавливаемся сразу
-                            if (className.includes('lightweightcardview_container')) break;
-                            if (className.includes('offer_usp_inside')) break;
+                            break; // ВАЖНО: Останавливаемся на ближайшем родителе-карточке
                         }
                         curr = curr.parentElement;
                     }
