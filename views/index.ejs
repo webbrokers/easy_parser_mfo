@@ -12,9 +12,64 @@
             </p>
         </div>
         <div class="mt-4 flex flex-col items-end md:mt-0 md:ml-4">
-            <button type="button" onclick="runScraperAll()" id="runAllBtn" style="background-color: #0066CC !important;" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
-                Запустить парсинг всех
-            </button>
+            <!-- Split Button Group -->
+            <div class="inline-flex rounded-md shadow-sm" role="group">
+                <!-- Main Button with Tooltip -->
+                <% 
+                    let tooltipText = 'Запустить парсинг всех активных витрин';
+                    if (lastFullRun && lastFullRun.start_time) {
+                        const startTime = new Date(lastFullRun.start_time);
+                        const endTime = new Date(lastFullRun.end_time);
+                        const duration = Math.round((endTime - startTime) / 1000);
+                        const minutes = Math.floor(duration / 60);
+                        const seconds = duration % 60;
+                        const formattedDate = startTime.toLocaleString('ru-RU', { 
+                            day: '2-digit', 
+                            month: '2-digit', 
+                            year: 'numeric', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                        });
+                        tooltipText = `Последний парсинг: ${formattedDate} (${lastFullRun.total_runs} витрин за ${minutes} мин ${seconds} сек)`;
+                    }
+                %>
+                <button 
+                    type="button" 
+                    onclick="runScraperAll()" 
+                    id="runAllBtn" 
+                    title="<%= tooltipText %>"
+                    style="background-color: #0066CC !important;" 
+                    class="inline-flex items-center px-4 py-2 border border-transparent rounded-l-md text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                    Запустить парсинг всех
+                </button>
+                
+                <!-- Dropdown Button -->
+                <div class="relative">
+                    <button 
+                        type="button" 
+                        onclick="toggleDropdown()" 
+                        id="dropdownBtn"
+                        style="background-color: #0066CC !important;" 
+                        class="inline-flex items-center px-2 py-2 border-l border-blue-700 rounded-r-md text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                        <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                            <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zM12 10a2 2 0 11-4 0 2 2 0 014 0zM16 12a2 2 0 100-4 2 2 0 000 4z" />
+                        </svg>
+                    </button>
+                    
+                    <!-- Dropdown Menu -->
+                    <div id="dropdownMenu" class="hidden absolute right-0 mt-2 w-64 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-10">
+                        <div class="py-1" role="menu">
+                            <a href="#" onclick="openSelectiveParsingModal(); return false;" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
+                                Выборочный парсинг
+                            </a>
+                            <a href="#" onclick="seedTestData(); return false;" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100" role="menuitem">
+                                Заполнить тестовые данные
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
             <div id="parsingStatus" class="hidden mt-2 text-xs font-medium text-blue-600 animate-pulse">
                 Готов к запуску...
             </div>
@@ -160,6 +215,42 @@
             <% }) %>
         </ul>
     </div>
+
+    <!-- Modal: Selective Parsing -->
+    <div id="selectiveParsingModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-2/3 lg:w-1/2 shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="text-lg font-medium text-gray-900">Выборочный парсинг</h3>
+                <button onclick="closeSelectiveParsingModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="mt-4">
+                <p class="text-sm text-gray-500 mb-4">Выберите витрины для парсинга:</p>
+                <div class="max-h-96 overflow-y-auto space-y-2">
+                    <% showcases.forEach(site => { %>
+                    <label class="flex items-center p-3 hover:bg-gray-50 rounded cursor-pointer">
+                        <input type="checkbox" class="showcase-checkbox h-4 w-4 text-blue-600 rounded" value="<%= site.id %>" <%= site.is_active ? 'checked' : '' %>>
+                        <span class="ml-3 text-sm font-medium text-gray-900"><%= site.name %></span>
+                        <span class="ml-auto text-xs text-gray-400"><%= site.url %></span>
+                    </label>
+                    <% }) %>
+                </div>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-5 pt-3 border-t">
+                <button onclick="closeSelectiveParsingModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-all">
+                    Отмена
+                </button>
+                <button onclick="runSelectedShowcases()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all">
+                    Запустить выбранные
+                </button>
+            </div>
+        </div>
+    </div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -175,6 +266,74 @@
             setTimeout(() => window.location.reload(), 300);
         } catch (e) {
             alert('Ошибка при смене статуса');
+        }
+    }
+
+    // Dropdown Logic
+    function toggleDropdown() {
+        const menu = document.getElementById('dropdownMenu');
+        menu.classList.toggle('hidden');
+    }
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', function(event) {
+        const dropdownBtn = document.getElementById('dropdownBtn');
+        const dropdownMenu = document.getElementById('dropdownMenu');
+        if (!dropdownBtn.contains(event.target) && !dropdownMenu.contains(event.target)) {
+            dropdownMenu.classList.add('hidden');
+        }
+    });
+
+    // Modal Logic
+    function openSelectiveParsingModal() {
+        document.getElementById('selectiveParsingModal').classList.remove('hidden');
+        toggleDropdown(); // Close menu
+    }
+
+    function closeSelectiveParsingModal() {
+        document.getElementById('selectiveParsingModal').classList.add('hidden');
+    }
+
+    async function runSelectedShowcases() {
+        const checkboxes = document.querySelectorAll('.showcase-checkbox:checked');
+        const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+        
+        if (selectedIds.length === 0) {
+            alert('Выберите хотя бы одну витрину');
+            return;
+        }
+
+        closeSelectiveParsingModal();
+        const status = document.getElementById('parsingStatus');
+        status.classList.remove('hidden');
+        status.innerText = `Запуск парсинга ${selectedIds.length} витрин...`;
+
+        try {
+            await fetch('/api/run-selected-showcases', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ showcase_ids: selectedIds })
+            });
+            
+            status.innerText = 'Парсинг выбранных витрин завершен!';
+            setTimeout(() => window.location.reload(), 1000);
+        } catch (e) {
+            alert('Ошибка при парсинге');
+            console.error(e);
+        }
+    }
+
+    async function seedTestData() {
+        if (!confirm('Вы уверены? Это добавит тестовые данные за 7 дней.')) return;
+        
+        toggleDropdown();
+        try {
+            await fetch('/api/seed-test-data', { method: 'POST' });
+            alert('Тестовые данные успешно добавлены!');
+            window.location.reload();
+        } catch (e) {
+            alert('Ошибка генерации данных');
+            console.error(e);
         }
     }
 

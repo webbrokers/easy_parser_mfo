@@ -43,6 +43,23 @@ app.get('/', async (req, res) => {
             errorsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now') AND status = 'error'").get().count
         };
 
+        // Получаем информацию о последнем полном парсинге
+        const lastFullRun = db.prepare(`
+            SELECT 
+                MIN(run_date) as start_time,
+                MAX(run_date) as end_time,
+                COUNT(*) as total_runs
+            FROM parsing_runs
+            WHERE date(run_date) = (
+                SELECT date(run_date) 
+                FROM parsing_runs 
+                WHERE status = 'success' 
+                ORDER BY run_date DESC 
+                LIMIT 1
+            )
+            AND status = 'success'
+        `).get();
+
         const globalHistory = AnalyticsService.getGlobalHistory();
 
         res.render('index', { 
@@ -50,7 +67,8 @@ app.get('/', async (req, res) => {
             showcases, 
             avgPos, 
             stats,
-            globalHistory 
+            globalHistory,
+            lastFullRun 
         });
     } catch (e) {
         console.error(e);
@@ -136,6 +154,93 @@ app.get('/api/top-offers/:period', async (req, res) => {
             .slice(0, 5);
 
         res.json(topOffers);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// API: Запуск выборочного парсинга
+app.post('/api/run-selected-showcases', async (req, res) => {
+    try {
+        const { showcase_ids } = req.body;
+        if (!showcase_ids || !Array.isArray(showcase_ids) || showcase_ids.length === 0) {
+            return res.status(400).json({ error: 'Не выбраны витрины' });
+        }
+
+        console.log(`[API] Запуск выборочного парсинга для: ${showcase_ids.join(', ')}`);
+        
+        // Запускаем асинхронно, не блокируя ответ
+        (async () => {
+            const showcases = db.prepare(`SELECT * FROM showcases WHERE id IN (${showcase_ids.join(',')})`).all();
+            for (const showcase of showcases) {
+                try {
+                    console.log(`[API] Парсинг витрины ${showcase.url}...`);
+                    await parseShowcase(showcase);
+                } catch (e) {
+                    console.error(`[API] Ошибка парсинга ${showcase.url}:`, e);
+                }
+            }
+            console.log(`[API] Выборочный парсинг завершен`);
+        })();
+
+        res.json({ success: true, message: 'Парсинг запущен' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
+// API: Генерация тестовых данных за 7 дней
+app.post('/api/seed-test-data', async (req, res) => {
+    try {
+        console.log('[API] Генерация тестовых данных...');
+        const showcases = db.prepare('SELECT * FROM showcases WHERE is_active = 1').all();
+        // Используем require внутри функции, чтобы избежать проблем с циклическими зависимостями или порядком загрузки
+        const { DateTime } = require('luxon');
+
+        const offersList = [
+            'MoneyMan', 'Webbankir', 'Zaymer', 'Ekapusta', 'Lime-Zaim', 
+            'Vivus', 'SrochnoDengi', 'Kviku', 'DobroZaim', 'Moneza', 
+            'JoyMoney', 'Platiza', 'Web-Zaim', 'Turboloan', 'Kredito24'
+        ];
+
+        // Транзакция для скорости
+        const insertRun = db.prepare('INSERT INTO parsing_runs (showcase_id, run_date, status, screenshot_path) VALUES (?, ?, ?, ?)');
+        const insertOffer = db.prepare('INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type) VALUES (?, ?, ?, ?, ?, ?)');
+
+        db.transaction(() => {
+            // Генерируем данные за последние 7 дней
+            for (let i = 6; i >= 0; i--) {
+                const date = DateTime.now().minus({ days: i }).toFormat('yyyy-MM-dd HH:mm:ss');
+                
+                showcases.forEach(showcase => {
+                    // Создаем parsing_run
+                    const runResult = insertRun.run(showcase.id, date, 'success', '');
+                    const runId = runResult.lastInsertRowid;
+
+                    // Генерируем 10-15 офферов
+                    const offersCount = Math.floor(Math.random() * 6) + 10;
+                    
+                    // Перемешиваем массив офферов
+                    const shuffledOffers = [...offersList].sort(() => 0.5 - Math.random());
+
+                    for (let j = 0; j < offersCount; j++) {
+                        insertOffer.run(
+                            runId, 
+                            j + 1, // position
+                            shuffledOffers[j], // company_name
+                            `https://example.com/click/${shuffledOffers[j]}`, // link
+                            '', // image_url
+                            'main' // placement_type
+                        );
+                    }
+                });
+            }
+        })();
+
+        console.log('[API] Тестовые данные успешно сгенерированы');
+        res.json({ success: true });
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: 'Internal Server Error' });
