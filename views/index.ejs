@@ -363,24 +363,6 @@
             runSelectedShowcases([id]);
         }
     }
-        const status = document.getElementById('parsingStatus');
-        status.classList.remove('hidden');
-        status.innerText = `Запуск парсинга ${selectedIds.length} витрин...`;
-
-        try {
-            await fetch('/api/run-selected-showcases', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ showcase_ids: selectedIds })
-            });
-            
-            status.innerText = 'Парсинг выбранных витрин завершен!';
-            setTimeout(() => window.location.reload(), 1000);
-        } catch (e) {
-            alert('Ошибка при парсинге');
-            console.error(e);
-        }
-    }
 
     async function seedTestData() {
         if (!confirm('Вы уверены? Это добавит тестовые данные за 7 дней.')) return;
