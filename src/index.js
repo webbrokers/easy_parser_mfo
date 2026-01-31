@@ -49,7 +49,6 @@ app.get('/showcase/:id', async (req, res) => {
     try {
         const showcase = db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
         if (!showcase) return res.status(404).send('Not Found');
-        
         const latest = AnalyticsService.getLatestShowcaseResults(req.params.id);
         res.render('showcase', { title: showcase.name, showcase, latest });
     } catch (e) {
@@ -64,7 +63,7 @@ app.get('/offers', async (req, res) => {
         res.render('offers', { title: 'Все офферы', offers });
     } catch (e) {
         console.error(e);
-        res.status(500).send('Internal Server Error');
+        res.status(500).send('Error');
     }
 });
 
@@ -74,7 +73,7 @@ app.get('/settings', async (req, res) => {
         res.render('settings', { title: 'Настройки', showcases });
     } catch (e) {
         console.error(e);
-        res.status(500).send('Internal Server Error');
+        res.status(500).send('Error');
     }
 });
 
@@ -120,8 +119,8 @@ app.post('/api/showcases/delete/:id', (req, res) => {
 
 // Запуск сервера
 if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`Сервер запущен на порту ${PORT}`);
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Сервер запущен на порту ${PORT} (0.0.0.0)`);
     });
 }
 

@@ -20,30 +20,44 @@ async function parseShowcase(showcaseId) {
     await page.setViewport({ width: 1280, height: 1080 });
 
     try {
-        console.log(`Начинаю парсинг: ${showcase.url}`);
+        console.log(`[Scraper] Начинаю парсинг: ${showcase.url}`);
         await page.goto(showcase.url, { waitUntil: 'networkidle2', timeout: 60000 });
+        
+        // 1. Ждем немного для прогрузки JS-виджетов
+        await new Promise(r => setTimeout(r, 4000));
 
-        // Генерация имени скриншота в формате: site_tld_YYYY-MM-DD_HH-mm.png
+        // 2. Эмуляция прокрутки (триггер ленивой загрузки)
+        await page.evaluate(async () => {
+            await new Promise((resolve) => {
+                let totalHeight = 0;
+                let distance = 300;
+                let timer = setInterval(() => {
+                    let scrollHeight = document.body.scrollHeight;
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if(totalHeight >= scrollHeight || totalHeight > 5000){
+                        clearInterval(timer);
+                        window.scrollTo(0, 0);
+                        resolve();
+                    }
+                }, 100);
+            });
+        });
+
+        // Генерация имени скриншота
         const urlObj = new URL(showcase.url);
         const domainSlug = urlObj.hostname.replace(/\./g, '_');
         const timestamp = DateTime.now().toFormat('yyyy-MM-dd_HH-mm');
         const screenshotName = `${domainSlug}_${timestamp}.png`;
-        
         const screenshotPath = path.join(__dirname, '../../public/screenshots', screenshotName);
         
-        // Создаем папку, если её нет
         const screenshotDir = path.dirname(screenshotPath);
-        if (!fs.existsSync(screenshotDir)) {
-            fs.mkdirSync(screenshotDir, { recursive: true });
-        }
+        if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
         try {
             await page.screenshot({ path: screenshotPath, fullPage: true });
-        } catch (e) {
-            console.error('Не удалось сделать скриншот:', e.message);
-        }
+        } catch (e) { console.error('Screen error:', e.message); }
 
-        // Лог запуска
         const runResult = db.prepare(`
             INSERT INTO parsing_runs (showcase_id, status, screenshot_path)
             VALUES (?, ?, ?)
@@ -51,115 +65,123 @@ async function parseShowcase(showcaseId) {
         
         const runId = runResult.lastInsertRowid;
 
-        // Логика парсинга офферов
-        const offers = await page.evaluate(() => {
+        // 3. Логика парсинга офферов (Container-Based Logic v2.0)
+        const data = await page.evaluate(() => {
             const results = [];
-            const keywords = ['деньги', 'заявку', 'получить', 'оформить', 'взять', 'займ', 'кредит', 'на карту', 'выплата'];
+            const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм'];
+            const stopWords = ['получить деньги', 'оформить заявку', 'взять займ', 'подробнее', 'подать заявку', 'получить на карту', 'выплата', 'деньги на карту'];
             
-            function isMoneyLink(el) {
-                const text = (el.textContent || el.innerText || '').toLowerCase();
-                return keywords.some(k => text.includes(k));
+            function hasKeyword(text) {
+                const low = (text || "").toLowerCase().trim();
+                return keywords.some(k => low.includes(k));
             }
 
-            // 1. Поиск в попапах / плавающих блоках (B1, B2...)
-            const popupSelectors = ['.popup', '.modal', '.banner', '[class*="sticky"]', '[id*="popup"]', '[class*="modal"]'];
-            let bIndex = 1;
+            function isStopWord(text) {
+                const low = (text || "").toLowerCase().trim();
+                return stopWords.some(s => low === s || low.includes(s) && low.length < 20);
+            }
+
+            const processedContainers = new Set();
+            const actionElements = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'));
             
-            popupSelectors.forEach(selector => {
-                const elements = document.querySelectorAll(selector);
-                elements.forEach(el => {
-                    const links = Array.from(el.querySelectorAll('a, button'));
-                    links.forEach(link => {
-                        if (isMoneyLink(link)) {
-                            const img = el.querySelector('img');
-                            results.push({
-                                position: bIndex,
-                                company_name: img?.alt || el.innerText.split('\n')[0].trim() || "Banner Offer",
-                                link: link.href || link.onclick?.toString() || "#",
-                                image_url: img?.src || null,
-                                placement_type: `b${bIndex++}`
-                            });
+            actionElements.forEach(el => {
+                const text = el.innerText || el.textContent || "";
+                const href = el.href || el.getAttribute('href') || "";
+                
+                // Если это кнопка или ссылка с целевым действием
+                if (hasKeyword(text) && (href.length > 3 || el.tagName === 'BUTTON')) {
+                    // Ищем контейнер карточки (проходим вверх до 8 уровней)
+                    let container = el.parentElement;
+                    let foundCard = null;
+                    
+                    for (let i = 0; i < 8; i++) {
+                        if (!container) break;
+                        // Признаки карточки: наличие картинки и определенного размера, или специфичные классы
+                        const hasImg = container.querySelector('img');
+                        const rect = container.getBoundingClientRect();
+                        const isCardLike = rect.height > 80 && rect.width > 150;
+                        
+                        // Если в контейнере есть картинка и он похож на карточку
+                        if (hasImg && isCardLike) {
+                            foundCard = container;
+                            // Если нашли контейнер с явным классом "card" или "offer", берем его как финальный
+                            if (container.className.toLowerCase().includes('card') || container.className.toLowerCase().includes('offer')) break;
                         }
+                        container = container.parentElement;
+                    }
+
+                    const card = foundCard || el.parentElement;
+                    if (processedContainers.has(card)) return;
+                    processedContainers.add(card);
+
+                    // --- Извлечение данных из карточки ---
+                    const img = card.querySelector('img');
+                    let companyName = "";
+
+                    // 1. Пытаемся взять имя из логотипа (самый надежный способ)
+                    if (img) {
+                        companyName = img.alt || img.title || "";
+                    }
+
+                    // 2. Если в логотипе пусто, ищем заголовки или жирный текст
+                    if (!companyName || isStopWord(companyName)) {
+                        const headings = Array.from(card.querySelectorAll('h1, h2, h3, h4, h5, h6, b, strong, [class*="title"], [class*="name"]'));
+                        for (const h of headings) {
+                            const val = h.innerText.trim();
+                            if (val && !isStopWord(val) && val.length > 2 && val.length < 40) {
+                                companyName = val;
+                                break;
+                            }
+                        }
+                    }
+
+                    // 3. Крайний случай - берем первую строку текста, которая не является стоп-словом
+                    if (!companyName || isStopWord(companyName)) {
+                        const lines = card.innerText.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+                        companyName = lines.find(l => !isStopWord(l)) || "Offer";
+                    }
+
+                    // Чистка финального имени
+                    companyName = companyName.split(/[.,!?;|]/)[0].substring(0, 40).trim();
+                    if (isStopWord(companyName)) companyName = "Offer";
+
+                    const finalLink = href.startsWith('http') ? href : window.location.origin + (href.startsWith('/') ? href : '/' + href);
+
+                    results.push({
+                        company_name: companyName,
+                        link: finalLink,
+                        image_url: img?.src || null,
+                        placement_type: 'main'
                     });
-                });
+                }
             });
 
-            // 2. Поиск в основном контенте
-            const offerBlocks = document.querySelectorAll('.offer-item, .card, .row, div[class*="offer"], div[class*="item"], div[class*="mfo"]');
-            let mainPos = 1;
+            // Финальная фильтрация: убираем дубли по имени и те, где имя осталось стоп-словом
+            const finalData = [];
+            const seen = new Set();
+            results.forEach(item => {
+                const key = item.company_name.toLowerCase();
+                if (!seen.has(key) && item.company_name !== "Offer") {
+                    seen.add(key);
+                    finalData.push(item);
+                }
+            });
 
-            if (offerBlocks.length > 0) {
-                offerBlocks.forEach(block => {
-                    const links = Array.from(block.querySelectorAll('a'));
-                    const moneyLink = links.find(l => isMoneyLink(l));
-                    
-                    if (moneyLink) {
-                        const img = block.querySelector('img');
-                        results.push({
-                            position: mainPos++,
-                            company_name: img?.alt || block.textContent.split('\n').map(s => s.trim()).filter(s => s.length > 2)[0] || "Offer",
-                            link: moneyLink.href,
-                            image_url: img?.src || null,
-                            placement_type: 'main'
-                        });
-                    }
-                });
-            }
-
-            // 3. Фоллбек: если ничего не нашли или нашли мало, ищем по всем ссылкам
-            if (results.length < 2) {
-                const allLinks = Array.from(document.querySelectorAll('a'));
-                allLinks.forEach(link => {
-                    if (isMoneyLink(link) && link.href.includes('http')) {
-                        // Пытаемся найти родительский контейнер
-                        let parent = link.parentElement;
-                        for (let i = 0; i < 3; i++) {
-                            if (!parent) break;
-                            const text = parent.textContent.length;
-                            if (text > 20 && text < 1000) break;
-                            parent = parent.parentElement;
-                        }
-                        
-                        const img = parent?.querySelector('img');
-                        const alreadyFound = results.some(r => r.link === link.href);
-                        
-                        if (!alreadyFound) {
-                            results.push({
-                                position: mainPos++,
-                                company_name: img?.alt || link.textContent.trim() || "Unknown",
-                                link: link.href,
-                                image_url: img?.src || null,
-                                placement_type: 'main'
-                            });
-                        }
-                    }
-                });
-            }
-
-            return results;
+            return finalData;
         });
 
-        console.log(`[Scraper] Найдено офферов: ${offers.length}`);
+        console.log(`[Scraper] Финальный результат: ${data.length} офферов для ${showcase.url}`);
 
-        // Сохранение в БД
         const insertOffer = db.prepare(`
             INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)
             VALUES (?, ?, ?, ?, ?, ?)
         `);
 
-        for (const offer of offers) {
-            insertOffer.run(
-                runId,
-                offer.position,
-                offer.company_name,
-                offer.link,
-                offer.image_url,
-                offer.placement_type
-            );
-        }
+        data.forEach((offer, index) => {
+            insertOffer.run(runId, index + 1, offer.company_name, offer.link, offer.image_url, offer.placement_type);
+        });
 
-        console.log(`Успешно спарсено ${offers.length} офферов для ${showcase.url}`);
-        return { success: true, count: offers.length };
+        return { success: true, count: data.length };
 
     } catch (error) {
         console.error(`Ошибка при парсинге ${showcase.url}:`, error);
