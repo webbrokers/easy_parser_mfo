@@ -31,6 +31,8 @@ const BRAND_ALIASES = {
 };
 
 class NormalizationService {
+    static BRAND_ALIASES = BRAND_ALIASES;
+
     /**
      * Превращает любое название в эталонное имя бренда.
      */

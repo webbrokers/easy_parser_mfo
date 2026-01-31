@@ -3,6 +3,7 @@ const db = require('../db/schema');
 const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
+const { NormalizationService } = require('../services/normalization');
 
 async function parseShowcase(showcaseId, retryCount = 0) {
     const showcase = db.prepare('SELECT * FROM showcases WHERE id = ?').get(showcaseId);
@@ -72,7 +73,6 @@ async function parseShowcase(showcaseId, retryCount = 0) {
             console.log(`[Scraper] Timeout waiting for network idle, continuing...`);
         }
 
-        const { NormalizationService } = require('../services/normalization');
         const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
 
         // 3. Логика парсинга офферов (Cluster Match v4.0)
@@ -220,7 +220,6 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
         console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
 
-        const { NormalizationService } = require('../services/normalization');
         const insertOffer = db.prepare(`
             INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)
             VALUES (?, ?, ?, ?, ?, ?)
