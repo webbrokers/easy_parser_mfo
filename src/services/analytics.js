@@ -4,10 +4,19 @@ const AnalyticsService = {
     // Получить среднюю позицию для каждого оффера (с нормализацией брендов)
     getAveragePositions: () => {
         const { NormalizationService } = require('./normalization');
+        const totalShowcases = db.prepare('SELECT COUNT(*) as count FROM showcases WHERE is_active = 1').get().count;
+        
         const rawData = db.prepare(`
-            SELECT company_name, position, link
-            FROM offer_stats
-            WHERE placement_type = 'main'
+            SELECT os.company_name, os.position, os.link, os.image_url, pr.showcase_id
+            FROM offer_stats os
+            JOIN parsing_runs pr ON os.run_id = pr.id
+            WHERE os.placement_type = 'main'
+            AND pr.id IN (
+                SELECT id FROM parsing_runs 
+                WHERE status = 'success' 
+                GROUP BY showcase_id 
+                HAVING id = MAX(id)
+            )
         `).all();
 
         const brands = {};
@@ -18,18 +27,28 @@ const AnalyticsService = {
                 brands[BrandName] = { 
                     company_name: BrandName, 
                     total_pos: 0, 
-                    appearances: 0 
+                    appearances: 0,
+                    showcases: new Set(),
+                    logo: row.image_url 
                 };
             }
             brands[BrandName].total_pos += row.position;
             brands[BrandName].appearances += 1;
+            brands[BrandName].showcases.add(row.showcase_id);
+            if (!brands[BrandName].logo && row.image_url) {
+                brands[BrandName].logo = row.image_url;
+            }
         });
 
         return Object.values(brands)
             .map(b => ({
                 company_name: b.company_name,
                 avg_pos: Math.round((b.total_pos / b.appearances) * 10) / 10,
-                appearances: b.appearances
+                appearances: b.appearances,
+                showcase_count: b.showcases.size,
+                total_showcases: totalShowcases,
+                frequency_pct: Math.round((b.showcases.size / totalShowcases) * 100),
+                logo: b.logo
             }))
             .sort((a, b) => a.avg_pos - b.avg_pos);
     },

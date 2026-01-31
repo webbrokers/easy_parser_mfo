@@ -29,6 +29,7 @@ app.get('/', async (req, res) => {
                 (SELECT COUNT(*) FROM offer_stats WHERE run_id = (
                     SELECT id FROM parsing_runs WHERE showcase_id = s.id AND status = 'success' ORDER BY run_date DESC LIMIT 1
                 )) as last_offers_count,
+                (SELECT screenshot_path FROM parsing_runs WHERE showcase_id = s.id AND status = 'success' ORDER BY run_date DESC LIMIT 1) as screenshot_path,
                 CAST((julianday('now') - julianday(s.created_at)) AS INTEGER) as days_active
             FROM showcases s
             ORDER BY s.id DESC
@@ -76,6 +77,68 @@ app.get('/offers', async (req, res) => {
     } catch (e) {
         console.error(e);
         res.status(500).send('Error');
+    }
+});
+
+// API для получения ТОП-5 офферов по периоду
+app.get('/api/top-offers/:period', async (req, res) => {
+    try {
+        const { period } = req.params;
+        let dateFilter = '';
+        
+        switch(period) {
+            case 'today':
+                dateFilter = "AND date(pr.run_date) = date('now')";
+                break;
+            case '7days':
+                dateFilter = "AND pr.run_date >= datetime('now', '-7 days')";
+                break;
+            case '14days':
+                dateFilter = "AND pr.run_date >= datetime('now', '-14 days')";
+                break;
+            case '30days':
+                dateFilter = "AND pr.run_date >= datetime('now', '-30 days')";
+                break;
+            case 'month':
+                dateFilter = "AND strftime('%Y-%m', pr.run_date) = strftime('%Y-%m', 'now')";
+                break;
+            default:
+                dateFilter = "AND pr.run_date >= datetime('now', '-7 days')";
+        }
+        
+        const { NormalizationService } = require('./services/normalization');
+        const rawData = db.prepare(`
+            SELECT os.company_name, os.position, os.link
+            FROM offer_stats os
+            JOIN parsing_runs pr ON os.run_id = pr.id
+            WHERE os.placement_type = 'main'
+            AND pr.status = 'success'
+            ${dateFilter}
+        `).all();
+
+        const brands = {};
+        rawData.forEach(row => {
+            const brandName = NormalizationService.normalize(row.company_name, row.link);
+            if (!brands[brandName]) {
+                brands[brandName] = { company_name: brandName, total_pos: 0, appearances: 0 };
+            }
+            brands[brandName].total_pos += row.position;
+            brands[brandName].appearances += 1;
+        });
+
+        const topOffers = Object.values(brands)
+            .map(b => ({
+                company_name: b.company_name,
+                avg_pos: Math.round((b.total_pos / b.appearances) * 10) / 10,
+                appearances: b.appearances
+            }))
+            .sort((a, b) => a.avg_pos - b.avg_pos)
+            .slice(0, 5);
+
+        res.json(topOffers);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Internal Server Error' });
     }
 });
 

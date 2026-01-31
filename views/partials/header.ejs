@@ -22,10 +22,14 @@
                         <span class="text-lg font-semibold tracking-tight text-manus-text">MFO.Parser</span>
                     </a>
                     <div class="hidden sm:-my-px sm:ml-8 sm:flex sm:space-x-8 h-full">
-                        <a href="/" class="border-manus-accent text-manus-text inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Дашборд</a>
-                        <a href="/offers" class="border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Офферы</a>
-                        <a href="/logs" class="border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Логи</a>
-                        <a href="/settings" class="border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium">Настройки</a>
+                        <% 
+                            const activeClass = "border-manus-accent text-manus-text inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium";
+                            const inactiveClass = "border-transparent text-gray-500 hover:text-manus-text hover:border-gray-300 inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium";
+                        %>
+                        <a href="/" class="<%= (typeof title !== 'undefined' && title === 'Дашборд') ? activeClass : inactiveClass %>">Дашборд</a>
+                        <a href="/offers" class="<%= (typeof title !== 'undefined' && title === 'Все офферы') ? activeClass : inactiveClass %>">Офферы</a>
+                        <a href="/logs" class="<%= (typeof title !== 'undefined' && title === 'Логи ошибок') ? activeClass : inactiveClass %>">Логи</a>
+                        <a href="/settings" class="<%= (typeof title !== 'undefined' && title === 'Настройки') ? activeClass : inactiveClass %>">Настройки</a>
                     </div>
                 </div>
             </div>

@@ -45,6 +45,10 @@ async function parseShowcase(showcaseId, retryCount = 0) {
             });
         });
 
+        // 2.5 КРИТИЧНО: Даем время на выполнение JS-редиректов и подмену ссылок
+        console.log(`[Scraper] Ожидание загрузки JS-редиректов...`);
+        await new Promise(r => setTimeout(r, 3000));
+
         // Генерация имени скриншота
         const urlObj = new URL(showcase.url);
         const domainSlug = urlObj.hostname.replace(/\./g, '_');
@@ -55,9 +59,31 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         const screenshotDir = path.dirname(screenshotPath);
         if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
 
+        // Безопасный скриншот (для длинных или медленных страниц)
         try {
-            await page.screenshot({ path: screenshotPath, fullPage: true });
-        } catch (e) { console.error('Screen error:', e.message); }
+            // Проверяем высоту страницы
+            const pageHeight = await page.evaluate(() => document.body.scrollHeight);
+            
+            if (pageHeight > 10000) {
+                // Очень длинная страница — делаем viewport скриншот
+                console.warn(`[Scraper] Страница слишком длинная (${pageHeight}px), делаю viewport скриншот`);
+                await page.screenshot({ path: screenshotPath, fullPage: false });
+            } else {
+                // Нормальная страница — fullPage с таймаутом 10 сек
+                await page.screenshot({ 
+                    path: screenshotPath, 
+                    fullPage: true,
+                    timeout: 10000  // 10 секунд — если дольше, то глобальная проблема
+                });
+            }
+        } catch (e) {
+            console.warn('[Scraper] Не удалось сделать fullPage скриншот, делаю viewport:', e.message);
+            try {
+                await page.screenshot({ path: screenshotPath, fullPage: false });
+            } catch (e2) {
+                console.error('[Scraper] Скриншот полностью провалился:', e2.message);
+            }
+        }
 
         const runResult = db.prepare(`
             INSERT INTO parsing_runs (showcase_id, status, screenshot_path)
@@ -66,9 +92,18 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         
         const runId = runResult.lastInsertRowid;
 
-        // 2.5 Ожидаем стабилизации сети (важно для тяжелых сайтов вроде Sravni)
+        // 2.6 Ожидаем стабилизации сети (особенно важно для Sravni)
+        const isSravni = showcase.url.includes('sravni.ru');
         try {
-            await page.waitForNetworkIdle({ idleTime: 1000, timeout: 5000 });
+            await page.waitForNetworkIdle({ 
+                idleTime: isSravni ? 3000 : 1000, 
+                timeout: isSravni ? 20000 : 5000 
+            });
+            // Даем Sravni еще больше времени на отрисовку iframe/динамического контента
+            if (isSravni) {
+                console.log(`[Scraper] Sravni.ru обнаружен, дополнительная задержка...`);
+                await new Promise(r => setTimeout(r, 5000));
+            }
         } catch (e) {
             console.log(`[Scraper] Timeout waiting for network idle, continuing...`);
         }
@@ -78,13 +113,18 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         // 3. Логика парсинга офферов (Cluster Match v4.0)
         const data = await page.evaluate((knownBrands) => {
             const results = [];
-            const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм', 'заполнить'];
+            const keywords = [
+                'займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 
+                'кредит', 'на карту', 'выплата', 'микрозайм', 'заполнить', 'выбрать', 
+                'узнать', 'подробнее', 'подать', 'бесплатно', 'инфо'
+            ];
             const finTerms = ['сумма', 'срок', 'ставка', 'процент', 'дней', 'руб'];
             const stopWords = ['получить деньги', 'оформить заявку', 'взять займ', 'подробнее', 'подать заявку', 'получить на карту', 'выплата', 'деньги на карту', 'сумма', 'срок', 'ставка', 'одобрение', 'заявка'];
             
             function isMoney(text) {
                 const low = (text || "").toLowerCase().trim();
-                return keywords.some(k => low.includes(k));
+                // Для Sravni и Zyamer учитываем более короткие кнопки
+                return keywords.some(k => low.includes(k)) || (low.length > 2 && low.length < 20 && (low.includes('одобр') || low.includes('выбр')));
             }
 
             function isTrashName(text) {
@@ -96,7 +136,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                 return false;
             }
 
-            // 0. Анализ паттернов ссылок (находим самый частый домен редиректа)
+            // 0. Анализ паттернов ссылок
             const allLinks = Array.from(document.querySelectorAll('a[href*="http"]')).map(a => {
                 try { return new URL(a.href).hostname; } catch(e) { return null; }
             }).filter(h => h && h !== window.location.hostname);
@@ -107,50 +147,50 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
             const processedContainers = new Set();
             
-            // 1. Ищем все ссылки и элементы, которые выглядят как кнопки
-            const targets = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'));
+            // 1. Ищем все возможные триггеры карточек
+            const targets = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button, span, div'))
+                .filter(el => {
+                    const txt = el.innerText || "";
+                    return txt.length > 2 && txt.length < 30 && isMoney(txt);
+                });
             
             targets.forEach(el => {
-                const text = el.innerText || el.textContent || "";
+                // Ищем контейнер карточки
+                let card = null;
+                let curr = el;
                 
-                if (isMoney(text)) {
-                    // Ищем контейнер карточки
-                    let card = null;
-                    let curr = el;
+                for (let i = 0; i < 12; i++) {
+                    if (!curr || curr === document.body) break;
                     
-                    for (let i = 0; i < 10; i++) {
-                        if (!curr || curr === document.body) break;
-                        
-                        const className = (curr.className || "").toString().toLowerCase();
-                        const tagName = curr.tagName.toLowerCase();
-                        const rect = curr.getBoundingClientRect();
-                        const innerText = (curr.innerText || "").toLowerCase();
-                        
-                        // Критерии Cluster Match
-                        const hasImg = curr.querySelector('img');
-                        const hasKnownBrand = knownBrands.some(b => innerText.includes(b.toLowerCase()));
-                        const hasFinTerms = finTerms.filter(t => innerText.includes(t)).length >= 2;
-                        const isCardClass = className.includes('card') || className.includes('offer') || className.includes('item') || className.includes('row');
-                        const isSignificant = rect.height > 80 && rect.width > 120;
-                        
-                        // Анализ ссылки в этом контейнере
-                        const cardLink = curr.querySelector('a[href*="http"]');
-                        const hasAffLink = cardLink && topDomain && cardLink.href.includes(topDomain);
+                    const className = (curr.className || "").toString().toLowerCase();
+                    const rect = curr.getBoundingClientRect();
+                    const innerText = (curr.innerText || "").toLowerCase();
+                    
+                    // Критерии Cluster Match
+                    const hasImg = curr.querySelector('img');
+                    const hasKnownBrand = knownBrands.some(b => innerText.includes(b.toLowerCase()));
+                    const hasFinTerms = finTerms.filter(t => innerText.includes(t)).length >= 2;
+                    const isCardClass = className.includes('card') || className.includes('offer') || className.includes('item') || className.includes('row') || className.includes('tile');
+                    const isSignificant = rect.height > 60 && rect.width > 100;
+                    
+                    // Анализ ссылки
+                    const cardLink = curr.querySelector('a[href*="http"]');
+                    const hasAffLink = cardLink && topDomain && cardLink.href.includes(topDomain);
 
-                        // Если блок содержит 3+ фактора — это наша карточка
-                        let factors = 0;
-                        if (isCardClass) factors++;
-                        if (hasKnownBrand) factors += 2; // Бренд — сильный маркер
-                        if (hasFinTerms) factors++;
-                        if (hasImg) factors++;
-                        if (hasAffLink) factors += 2; // Реферальная ссылка — сильнейший маркер
+                    let factors = 0;
+                    if (isCardClass) factors++;
+                    if (hasKnownBrand) factors += 2;
+                    if (hasFinTerms) factors++;
+                    if (hasImg) factors++;
+                    if (hasAffLink) factors += 2;
 
-                        if (factors >= 3 && isSignificant) {
-                            card = curr;
-                            break; 
-                        }
-                        curr = curr.parentElement;
+                    // Понижаем порог для Zyamer, если есть сильные маркеры
+                    if ((factors >= 3 || (hasKnownBrand && factors >= 2)) && isSignificant) {
+                        card = curr;
+                        break; 
                     }
+                    curr = curr.parentElement;
+                }
 
                     if (card && !processedContainers.has(card)) {
                         processedContainers.add(card);
@@ -201,7 +241,6 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                             placement_type: 'main'
                         });
                     }
-                }
             });
 
             // Дедупликация по имени МФО
@@ -219,6 +258,11 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         }, brandNames);
 
         console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
+        
+        // Отладка для Sravni
+        if (isSravni && data.length === 0) {
+            console.warn(`[Scraper] ВНИМАНИЕ: Sravni.ru вернул 0 офферов! Возможно, контент загружается через iframe или требуется больше времени.`);
+        }
 
         const insertOffer = db.prepare(`
             INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)

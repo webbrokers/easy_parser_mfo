@@ -16,14 +16,15 @@
                     <tr>
                         <th class="px-6 py-4 font-semibold text-sm">Компания</th>
                         <th class="px-6 py-4 font-semibold text-sm">Средняя позиция</th>
-                        <th class="px-6 py-4 font-semibold text-sm">Частота появления</th>
+                        <th class="px-6 py-4 font-semibold text-sm">Охват витрин</th>
+                        <th class="px-6 py-4 font-semibold text-sm">Частота (%)</th>
                         <th class="px-6 py-4 font-semibold text-sm">Статус</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <% if (offers.length === 0) { %>
                         <tr>
-                            <td colspan="4" class="px-6 py-12 text-center text-gray-400">
+                            <td colspan="5" class="px-6 py-12 text-center text-gray-400">
                                 Данных пока нет. Запустите первый парсинг.
                             </td>
                         </tr>
@@ -32,19 +33,31 @@
                         <tr class="hover:bg-gray-50 transition-colors">
                             <td class="px-6 py-4">
                                 <div class="flex items-center space-x-3">
-                                    <div class="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center p-1">
-                                        <img src="/img/no-logo.png" class="max-w-full max-h-full" alt="<%= offer.company_name %>">
+                                    <div class="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center p-1 border border-gray-100 overflow-hidden">
+                                        <% if (offer.logo) { %>
+                                            <img src="<%= offer.logo %>" class="max-w-full max-h-full object-contain" alt="<%= offer.company_name %>">
+                                        <% } else { %>
+                                            <div class="text-[10px] text-gray-400 font-bold uppercase"><%= offer.company_name.substring(0,2) %></div>
+                                        <% } %>
                                     </div>
-                                    <span class="font-medium"><%= offer.company_name %></span>
+                                    <span class="font-medium text-gray-900"><%= offer.company_name %></span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <span class="px-2 py-1 bg-manus-accent/10 text-manus-accent rounded-md text-sm font-bold">
+                                <span class="px-2.5 py-1 bg-manus-accent/10 text-manus-accent rounded-md text-sm font-bold">
                                     <%= offer.avg_pos.toFixed(2) %>
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-sm text-gray-500">
-                                <%= offer.appearances %> раз(а)
+                            <td class="px-6 py-4 text-sm font-medium text-gray-700">
+                                <%= offer.showcase_count %> из <%= offer.total_showcases %>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center">
+                                    <div class="w-16 bg-gray-100 rounded-full h-1.5 mr-2">
+                                        <div class="bg-blue-500 h-1.5 rounded-full" style="width: <%= offer.frequency_pct %>%;"></div>
+                                    </div>
+                                    <span class="text-xs font-semibold text-gray-500"><%= offer.frequency_pct %>%</span>
+                                </div>
                             </td>
                             <td class="px-6 py-4">
                                 <span class="flex items-center text-xs font-semibold text-green-500">

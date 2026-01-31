@@ -17,6 +17,16 @@
         </div>
     </div>
 
+    <% 
+        function getErrorHint(msg) {
+            if (msg.includes('detached')) return 'Страница обновилась слишком быстро или элемент исчез. Рекомендуется повторный запуск.';
+            if (msg.includes('timeout')) return 'Сайт отвечал слишком долго. Возможно, проблемы с соединением или тяжелый контент.';
+            if (msg.includes('Navigation failed')) return 'Не удалось загрузить страницу. Проверьте актуальность ссылки.';
+            if (msg.includes('Protocol error')) return 'Системная ошибка браузера. Обычно решается само при перезапуске.';
+            return 'Техническая ошибка. Ожидайте автоматического исправления при следующем запуске.';
+        }
+    %>
+
     <% if (errors.length === 0) { %>
     <div class="bg-white p-12 text-center rounded-lg border border-gray-100 shadow">
         <div class="inline-flex items-center justify-center p-3 bg-green-50 rounded-full mb-4">
@@ -32,19 +42,31 @@
         <ul role="list" class="divide-y divide-gray-200">
             <% errors.forEach(log => { %>
             <li class="p-6 hover:bg-gray-50">
-                <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center justify-between mb-4">
                     <div class="flex items-center">
-                        <span class="p-1 bg-red-50 rounded-md mr-3">
+                        <span class="p-1.5 bg-red-50 rounded-md mr-3">
                             <svg class="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                         </span>
-                        <h4 class="text-sm font-bold text-manus-text"><%= log.showcase_name %></h4>
+                        <div>
+                            <h4 class="text-sm font-bold text-manus-text uppercase tracking-tight"><%= log.showcase_name %></h4>
+                            <span class="text-[10px] text-gray-400 font-medium"><%= new Date(log.run_date).toLocaleString('ru-RU') %></span>
+                        </div>
                     </div>
-                    <span class="text-xs text-gray-400"><%= new Date(log.run_date).toLocaleString('ru-RU') %></span>
                 </div>
-                <div class="bg-red-50/50 rounded p-3 border border-red-100">
-                    <p class="text-sm text-red-800 font-mono"><%= log.error_message %></p>
+                <div class="space-y-3">
+                    <div class="bg-red-50/50 rounded-lg p-3 border border-red-100/50">
+                        <p class="text-[13px] text-red-800 font-mono leading-relaxed"><%= log.error_message %></p>
+                    </div>
+                    <div class="flex items-start bg-blue-50/30 rounded-lg p-3 border border-blue-100/30">
+                        <svg class="h-4 w-4 text-blue-500 mr-2 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <p class="text-[12px] text-blue-700 italic">
+                            <b>Что это значит:</b> <%= getErrorHint(log.error_message) %>
+                        </p>
+                    </div>
                 </div>
             </li>
             <% }) %>
