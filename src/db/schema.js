@@ -19,15 +19,22 @@ if (!db) {
 }
 
 // Таблица витрин (сайтов)
-db.prepare(`
     CREATE TABLE IF NOT EXISTS showcases (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         url TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         is_active INTEGER DEFAULT 1,
+        custom_selector TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
 `).run();
+
+// Миграция: добавляем custom_selector, если его нет (для старых БД)
+try {
+    db.prepare("ALTER TABLE showcases ADD COLUMN custom_selector TEXT").run();
+} catch (e) {
+    // Колонка уже существует, игнорируем ошибку
+}
 
 // Лог запусков парсинга
 db.prepare(`

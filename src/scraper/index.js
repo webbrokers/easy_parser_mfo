@@ -222,65 +222,90 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       )[0]?.[0];
 
       const processedContainers = new Set();
+      const customSelector = '${showcase.custom_selector || ''}'; // Внедряем селектор
 
-      // 1. Ищем все возможные триггеры карточек
-      const targets = Array.from(
-        document.querySelectorAll(
-          'a, button, [role="button"], .btn, .button, span, div',
-        ),
-      ).filter((el) => {
-        const txt = el.innerText || "";
-        return txt.length > 2 && txt.length < 30 && isMoney(txt);
-      });
+      let targets = [];
+
+      // 1. Если задан пользовательский селектор, используем его
+      if (customSelector && customSelector.trim()) {
+          try {
+              const customElements = document.querySelectorAll(customSelector);
+              if (customElements.length > 0) {
+                  // Превращаем NodeList в массив и помечаем как "карточки"
+                  targets = Array.from(customElements);
+                  console.log('Using custom selector:', customSelector, 'Found:', targets.length);
+              }
+          } catch(e) {
+              console.error('Invalid custom selector:', customSelector);
+          }
+      }
+
+      // 2. Если селектор не дал результатов или не задан, используем эвристику
+      if (targets.length === 0) {
+          targets = Array.from(
+            document.querySelectorAll(
+              'a, button, [role="button"], .btn, .button, span, div',
+            ),
+          ).filter((el) => {
+            const txt = el.innerText || "";
+            return txt.length > 2 && txt.length < 30 && isMoney(txt);
+          });
+      }
 
       targets.forEach((el) => {
         // Ищем контейнер карточки
         let card = null;
-        let curr = el;
 
-        for (let i = 0; i < 12; i++) {
-          if (!curr || curr === document.body) break;
+        // Если это элементы по кастомному селектору, то они сами и есть карточки (или их прямые контейнеры)
+        if (customSelector && customSelector.trim()) {
+             card = el;
+        } else {
+            // Иначе ищем родителя-карточку
+            let curr = el;
+            for (let i = 0; i < 12; i++) {
+              if (!curr || curr === document.body) break;
 
-          const className = (curr.className || "").toString().toLowerCase();
-          const rect = curr.getBoundingClientRect();
-          const innerText = (curr.innerText || "").toLowerCase();
+              const className = (curr.className || "").toString().toLowerCase();
+              const rect = curr.getBoundingClientRect();
+              const innerText = (curr.innerText || "").toLowerCase();
 
-          // Критерии Cluster Match
-          const hasImg = curr.querySelector("img");
-          const hasKnownBrand = knownBrands.some((b) =>
-            innerText.includes(b.toLowerCase()),
-          );
-          const hasFinTerms =
-            finTerms.filter((t) => innerText.includes(t)).length >= 2;
-          const isCardClass =
-            className.includes("card") ||
-            className.includes("offer") ||
-            className.includes("item") ||
-            className.includes("row") ||
-            className.includes("tile");
-          const isSignificant = rect.height > 60 && rect.width > 100;
+              // Критерии Cluster Match
+              const hasImg = curr.querySelector("img");
+              const hasKnownBrand = knownBrands.some((b) =>
+                innerText.includes(b.toLowerCase()),
+              );
+              const hasFinTerms =
+                finTerms.filter((t) => innerText.includes(t)).length >= 2;
+              const isCardClass =
+                className.includes("card") ||
+                className.includes("offer") ||
+                className.includes("item") ||
+                className.includes("row") ||
+                className.includes("tile");
+              const isSignificant = rect.height > 60 && rect.width > 100;
 
-          // Анализ ссылки
-          const cardLink = curr.querySelector('a[href*="http"]');
-          const hasAffLink =
-            cardLink && topDomain && cardLink.href.includes(topDomain);
+              // Анализ ссылки
+              const cardLink = curr.querySelector('a[href*="http"]');
+              const hasAffLink =
+                cardLink && topDomain && cardLink.href.includes(topDomain);
 
-          let factors = 0;
-          if (isCardClass) factors++;
-          if (hasKnownBrand) factors += 2;
-          if (hasFinTerms) factors++;
-          if (hasImg) factors++;
-          if (hasAffLink) factors += 2;
+              let factors = 0;
+              if (isCardClass) factors++;
+              if (hasKnownBrand) factors += 2;
+              if (hasFinTerms) factors++;
+              if (hasImg) factors++;
+              if (hasAffLink) factors += 2;
 
-          // Понижаем порог для Zyamer, если есть сильные маркеры
-          if (
-            (factors >= 3 || (hasKnownBrand && factors >= 2)) &&
-            isSignificant
-          ) {
-            card = curr;
-            break;
-          }
-          curr = curr.parentElement;
+              // Понижаем порог для Zyamer, если есть сильные маркеры
+              if (
+                (factors >= 3 || (hasKnownBrand && factors >= 2)) &&
+                isSignificant
+              ) {
+                card = curr;
+                break;
+              }
+              curr = curr.parentElement;
+            }
         }
 
         if (card && !processedContainers.has(card)) {
@@ -421,9 +446,40 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         // 2. SimpleDOM Fallback (Если JSON не сработал)
         // Ищем тупо по классам "card" или "item" и берем первую ссылку
         if (results.length === 0) {
-          const simpleCards = document.querySelectorAll(
-            ".card, .offer-item, .item, .offer-card, .product-layout",
-          );
+          // 0. Если был задан кастомный селектор, но основной проход ничего не нашел (редко, но бывает)
+          if (customSelector && customSelector.trim()) {
+             const customElements = document.querySelectorAll(customSelector);
+             customElements.forEach((c) => {
+                const linkEl = c.querySelector('a[href*="http"], a[href^="/"]');
+                const imgEl = c.querySelector("img");
+                let name = "";
+
+                if (imgEl) name = imgEl.alt || imgEl.title;
+                if (!name) name = c.innerText.split("\n")[0];
+                
+                // Если ссыпа у самого контейнера
+                let finalLink = linkEl ? linkEl.href : c.getAttribute('href');
+                 if (finalLink && !finalLink.startsWith('http')) {
+                    finalLink = window.location.origin + finalLink;
+                 }
+
+                if (finalLink && name && name.length > 2) {
+                  results.push({
+                    company_name: name.trim(),
+                    link: finalLink,
+                    image_url: imgEl ? imgEl.src : null,
+                    placement_type: "main",
+                  });
+                }
+             });
+          }
+
+          // 2. SimpleDOM Fallback (Если JSON не сработал)
+          // Ищем тупо по классам "card" или "item" и берем первую ссылку
+          if (results.length === 0) {
+              const simpleCards = document.querySelectorAll(
+                ".card, .offer-item, .item, .offer-card, .product-layout",
+              );
           simpleCards.forEach((c) => {
             const linkEl = c.querySelector('a[href*="http"], a[href^="/"]');
             const imgEl = c.querySelector("img");

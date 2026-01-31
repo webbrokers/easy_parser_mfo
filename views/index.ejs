@@ -94,8 +94,10 @@
     <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-10">
         <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
             <div class="p-5">
-                <dt class="text-sm font-medium text-gray-500 truncate">Всего витрин</dt>
-                <dd class="mt-1 text-3xl font-semibold text-manus-text"><%= stats.totalShowcases %></dd>
+                <dt class="text-sm font-medium text-gray-500 truncate">Всего витрин / Активных</dt>
+                <dd class="mt-1 text-3xl font-semibold text-manus-text">
+                    <%= stats.totalShowcases %> / <span class="text-green-600"><%= stats.activeShowcases %></span>
+                </dd>
             </div>
         </div>
         <div class="bg-white overflow-hidden shadow rounded-lg border border-gray-100">
@@ -222,7 +224,7 @@
                                 
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" class="sr-only peer" <%= site.is_active ? 'checked' : '' %> onchange="toggleShowcase(<%= site.id %>, this.checked)">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none focus:ring-4 focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-manus-accent"></div>
+                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-manus-accent"></div>
                                 </label>
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full <%= site.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' %>">
                                     <%= site.is_active ? 'Active' : 'Paused' %>
@@ -445,51 +447,81 @@
     }
 
     // Chart Logic
-    const rawData = <%- JSON.stringify(globalHistory) %>;
-    const weekDays = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+    const chartData = <%- JSON.stringify(chartData) %>;
     
-    // Подготовка данных: создаем массив за последние 7 дней (даже если не было парсинга)
-    const labels = [];
-    const values = [];
-    const today = new Date();
-    
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(today.getDate() - i);
-        const dayStr = d.toISOString().split('T')[0];
-        const dayLabel = weekDays[d.getDay()];
-        
-        labels.push(dayLabel);
-        
-        const entry = rawData.find(r => r.run_day === dayStr);
-        values.push(entry ? entry.avg_pos : null); // null создаст разрыв или пропуск (лучше для честности)
+    // Цветовая палитра для линий
+    const colors = [
+        '#3B82F6', // Blue
+        '#10B981', // Emerald
+        '#F59E0B', // Amber
+        '#EF4444', // Red
+        '#8B5CF6'  // Purple
+    ];
+
+    // Назначаем цвета датасетам
+    if (chartData.datasets) {
+        chartData.datasets.forEach((dataset, index) => {
+            dataset.borderColor = colors[index % colors.length];
+            dataset.backgroundColor = colors[index % colors.length]; // Для легенды
+            dataset.fill = false; // Отключаем заливку под графиком для чистоты
+            dataset.tension = 0.4;
+            dataset.spanGaps = true;
+            dataset.borderWidth = 2;
+            dataset.pointRadius = 3;
+            dataset.pointHoverRadius = 5;
+        });
     }
 
     const ctx = document.getElementById('positionsChart').getContext('2d');
     new Chart(ctx, {
         type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Средняя позиция',
-                data: values,
-                borderColor: '#0066CC',
-                backgroundColor: 'rgba(0, 102, 204, 0.1)',
-                fill: true,
-                tension: 0.4,
-                spanGaps: true // Соединяет точки через пустые дни
-            }]
-        },
+        data: chartData,
         options: {
             responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
             plugins: {
-                legend: { display: false }
+                legend: { 
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 8
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += context.parsed.y.toFixed(1);
+                            }
+                            return label;
+                        }
+                    }
+                }
             },
             scales: {
                 y: { 
-                    reverse: true, 
-                    min: 1,
-                    ticks: { stepSize: 1 }
+                    reverse: true, // 1 место выше, чем 10
+                    beginAtZero: false,
+                    title: {
+                        display: true,
+                        text: 'Позиция'
+                    },
+                    ticks: { 
+                        stepSize: 1 
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    }
                 }
             }
         }

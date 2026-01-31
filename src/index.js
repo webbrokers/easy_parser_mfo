@@ -55,6 +55,7 @@ app.get('/', async (req, res) => {
         
         const stats = {
             totalShowcases: showcases.length,
+            activeShowcases: showcases.filter(s => s.is_active).length,
             // Считаем уникальные МФО, а не просто количество записей
             totalOffers: db.prepare('SELECT count(DISTINCT company_name) as count FROM offer_stats').get().count,
             runsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now')").get().count,
@@ -78,14 +79,14 @@ app.get('/', async (req, res) => {
             AND status = 'success'
         `).get();
 
-        const globalHistory = AnalyticsService.getGlobalHistory();
+        const chartData = AnalyticsService.getTopOffersHistory();
 
         res.render('index', { 
             title: 'Дашборд', 
             showcases, 
             avgPos, 
             stats,
-            globalHistory,
+            chartData,
             lastFullRun 
         });
     } catch (e) {
@@ -98,8 +99,23 @@ app.get('/showcase/:id', async (req, res) => {
     try {
         const showcase = db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
         if (!showcase) return res.status(404).send('Not Found');
-        const latest = AnalyticsService.getLatestShowcaseResults(req.params.id);
-        res.render('showcase', { title: showcase.name, showcase, latest });
+
+        // Получаем историю запусков
+        const history = AnalyticsService.getShowcaseHistory(req.params.id);
+
+        let latest = null;
+
+        // Если передан run_id, пытаемся получить конкретный запуск
+        if (req.query.run_id) {
+            latest = AnalyticsService.getShowcaseRun(req.query.run_id);
+        } 
+        
+        // Если run_id нет или запуск не найден, берем самый свежий (первый из истории)
+        if (!latest && history.length > 0) {
+            latest = AnalyticsService.getShowcaseRun(history[0].id);
+        }
+
+        res.render('showcase', { title: showcase.name, showcase, latest, history });
     } catch (e) {
         console.error(e);
         res.status(500).send('Internal Server Error');
@@ -312,6 +328,18 @@ app.post('/api/showcase/:id/toggle', (req, res) => {
         const { id } = req.params;
         const { is_active } = req.body;
         db.prepare('UPDATE showcases SET is_active = ? WHERE id = ?').run(is_active ? 1 : 0, id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// API для обновления настроек витрины (селектор)
+app.post('/api/showcase/:id/update', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { custom_selector } = req.body;
+        db.prepare('UPDATE showcases SET custom_selector = ? WHERE id = ?').run(custom_selector || null, id);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });

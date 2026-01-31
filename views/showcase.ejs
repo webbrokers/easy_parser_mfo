@@ -46,6 +46,37 @@
 
         <!-- Screenshot & Meta -->
         <div class="space-y-8">
+            <!-- Parsing History Widget -->
+            <div class="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
+                <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
+                    <h3 class="text-lg font-medium text-gray-900">История парсинга</h3>
+                </div>
+                <div class="max-h-96 overflow-y-auto">
+                    <ul class="divide-y divide-gray-200">
+                        <% if (typeof history !== 'undefined' && history.length > 0) { %>
+                            <% history.forEach(run => { %>
+                            <li>
+                                <a href="/showcase/<%= showcase.id %>?run_id=<%= run.id %>" 
+                                   class="block px-4 py-4 hover:bg-gray-50 transition-colors <%= latest && latest.run.id === run.id ? 'bg-blue-50 border-l-4 border-blue-500' : '' %>">
+                                    <div class="flex items-center justify-between">
+                                        <p class="text-sm font-medium text-gray-900 truncate">
+                                            <%= new Date(run.run_date).toLocaleString() %>
+                                        </p>
+                                        <div class="ml-2 flex-shrink-0 flex">
+                                            <p class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                <%= run.status %>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </a>
+                            </li>
+                            <% }) %>
+                        <% } else { %>
+                            <li class="px-4 py-4 text-sm text-gray-500 text-center">Нет истории</li>
+                        <% } %>
+                    </ul>
+                </div>
+            </div>
             <div class="bg-white shadow rounded-lg border border-gray-100 overflow-hidden">
                 <div class="px-4 py-5 sm:px-6 border-b border-gray-200">
                     <h3 class="text-lg font-medium text-gray-900">Скриншот витрины</h3>
