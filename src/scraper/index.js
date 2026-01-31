@@ -4,13 +4,13 @@ const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
 
-async function parseShowcase(showcaseId) {
+async function parseShowcase(showcaseId, retryCount = 0) {
     const showcase = db.prepare('SELECT * FROM showcases WHERE id = ?').get(showcaseId);
     if (!showcase) throw new Error('Showcase not found');
 
     const browser = await puppeteer.launch({
         headless: "new",
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
     });
 
     const page = await browser.newPage();
@@ -72,10 +72,14 @@ async function parseShowcase(showcaseId) {
             console.log(`[Scraper] Timeout waiting for network idle, continuing...`);
         }
 
-        // 3. Логика парсинга офферов (Container-Based Logic v3.3 - "Stability Patch")
-        const data = await page.evaluate(() => {
+        const { NormalizationService } = require('../services/normalization');
+        const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
+
+        // 3. Логика парсинга офферов (Cluster Match v4.0)
+        const data = await page.evaluate((knownBrands) => {
             const results = [];
             const keywords = ['займ', 'деньги', 'получить', 'оформить', 'взять', 'заявку', 'отправить', 'кредит', 'на карту', 'выплата', 'микрозайм', 'заполнить'];
+            const finTerms = ['сумма', 'срок', 'ставка', 'процент', 'дней', 'руб'];
             const stopWords = ['получить деньги', 'оформить заявку', 'взять займ', 'подробнее', 'подать заявку', 'получить на карту', 'выплата', 'деньги на карту', 'сумма', 'срок', 'ставка', 'одобрение', 'заявка'];
             
             function isMoney(text) {
@@ -91,6 +95,15 @@ async function parseShowcase(showcaseId) {
                 if (low.startsWith('до ') || low.startsWith('от ')) return true; // Суммы
                 return false;
             }
+
+            // 0. Анализ паттернов ссылок (находим самый частый домен редиректа)
+            const allLinks = Array.from(document.querySelectorAll('a[href*="http"]')).map(a => {
+                try { return new URL(a.href).hostname; } catch(e) { return null; }
+            }).filter(h => h && h !== window.location.hostname);
+            
+            const domainCounts = {};
+            allLinks.forEach(d => domainCounts[d] = (domainCounts[d] || 0) + 1);
+            const topDomain = Object.entries(domainCounts).sort((a,b) => b[1] - a[1])[0]?.[0];
 
             const processedContainers = new Set();
             
@@ -111,15 +124,30 @@ async function parseShowcase(showcaseId) {
                         const className = (curr.className || "").toString().toLowerCase();
                         const tagName = curr.tagName.toLowerCase();
                         const rect = curr.getBoundingClientRect();
+                        const innerText = (curr.innerText || "").toLowerCase();
                         
-                        // Признак карточки: класс содержит card/offer/item или это ссылка-обертка с картинкой
-                        const isCardClass = className.includes('card') || className.includes('offer') || className.includes('item');
+                        // Критерии Cluster Match
                         const hasImg = curr.querySelector('img');
+                        const hasKnownBrand = knownBrands.some(b => innerText.includes(b.toLowerCase()));
+                        const hasFinTerms = finTerms.filter(t => innerText.includes(t)).length >= 2;
+                        const isCardClass = className.includes('card') || className.includes('offer') || className.includes('item') || className.includes('row');
                         const isSignificant = rect.height > 80 && rect.width > 120;
+                        
+                        // Анализ ссылки в этом контейнере
+                        const cardLink = curr.querySelector('a[href*="http"]');
+                        const hasAffLink = cardLink && topDomain && cardLink.href.includes(topDomain);
 
-                        if ((isCardClass || (tagName === 'a' && hasImg)) && isSignificant) {
+                        // Если блок содержит 3+ фактора — это наша карточка
+                        let factors = 0;
+                        if (isCardClass) factors++;
+                        if (hasKnownBrand) factors += 2; // Бренд — сильный маркер
+                        if (hasFinTerms) factors++;
+                        if (hasImg) factors++;
+                        if (hasAffLink) factors += 2; // Реферальная ссылка — сильнейший маркер
+
+                        if (factors >= 3 && isSignificant) {
                             card = curr;
-                            break; // ВАЖНО: Останавливаемся на ближайшем родителе-карточке
+                            break; 
                         }
                         curr = curr.parentElement;
                     }
@@ -188,7 +216,7 @@ async function parseShowcase(showcaseId) {
             });
 
             return final;
-        });
+        }, brandNames);
 
         console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
 
@@ -206,14 +234,22 @@ async function parseShowcase(showcaseId) {
         return { success: true, count: data.length };
 
     } catch (error) {
-        console.error(`Ошибка при парсинге ${showcase.url}:`, error);
+        console.error(`Ошибка при парсинге ${showcase.url} (Attempt ${retryCount + 1}):`, error.message);
+        
+        // Авто-рестарт при "detached frame" или таймлауте (макс 2 попытки)
+        if (retryCount < 1 && (error.message.includes('detached') || error.message.includes('timeout'))) {
+            console.log(`[Scraper] Обнаружена критическая ошибка, пробую еще раз...`);
+            await browser.close();
+            return parseShowcase(showcaseId, retryCount + 1);
+        }
+
         db.prepare(`
             INSERT INTO parsing_runs (showcase_id, status, error_message)
             VALUES (?, ?, ?)
         `).run(showcaseId, 'error', error.message);
         return { success: false, error: error.message };
     } finally {
-        await browser.close();
+        if (browser) await browser.close();
     }
 }
 
