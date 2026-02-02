@@ -36,29 +36,29 @@ async function parseShowcase(showcaseId, retryCount = 0) {
     });
 
     // 1. Ждем немного для прогрузки JS-виджетов
-    await new Promise((r) => setTimeout(r, 4000));
+    await new Promise((r) => setTimeout(r, 6000));
 
     // 2. Эмуляция прокрутки (триггер ленивой загрузки)
     await page.evaluate(async () => {
       await new Promise((resolve) => {
         let totalHeight = 0;
-        let distance = 300;
+        let distance = 400;
         let timer = setInterval(() => {
           let scrollHeight = document.body.scrollHeight;
           window.scrollBy(0, distance);
           totalHeight += distance;
-          if (totalHeight >= scrollHeight || totalHeight > 5000) {
+          if (totalHeight >= scrollHeight || totalHeight > 10000) {
             clearInterval(timer);
             window.scrollTo(0, 0);
             resolve();
           }
-        }, 100);
+        }, 120);
       });
     });
 
     // 2.5 КРИТИЧНО: Даем время на выполнение JS-редиректов и подмену ссылок
-    console.log(`[Scraper] Ожидание загрузки JS-редиректов...`);
-    await new Promise((r) => setTimeout(r, 3000));
+    console.log(`[Scraper] Ожидание стабилизации элементов после скролла...`);
+    await new Promise((r) => setTimeout(r, 4000));
 
     // Генерация имени скриншота
     const urlObj = new URL(showcase.url);
@@ -77,21 +77,31 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
     // Безопасный скриншот (для длинных или медленных страниц)
     try {
-      // Проверяем высоту страницы
+      await page.setViewport({ width: 1280, height: 1080 }); // Принудительный Desktop для скрина
+      
       const pageHeight = await page.evaluate(() => document.body.scrollHeight);
+      const isVisible = await page.evaluate(() => {
+        const body = document.body;
+        return body && body.innerText.trim().length > 100 && !body.innerText.includes("Not Found");
+      });
 
-      if (pageHeight > 10000) {
+      if (!isVisible) {
+          console.warn(`[Scraper] Страница кажется пустой или "Not Found", жду еще 5сек...`);
+          await new Promise(r => setTimeout(r, 5000));
+      }
+
+      if (pageHeight > 12000) {
         // Очень длинная страница — делаем viewport скриншот
         console.warn(
           `[Scraper] Страница слишком длинная (${pageHeight}px), делаю viewport скриншот`,
         );
         await page.screenshot({ path: screenshotPath, fullPage: false });
       } else {
-        // Нормальная страница — fullPage с таймаутом 10 сек
+        // Нормальная страница — fullPage с таймаутом 15 сек
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
-          timeout: 10000, // 10 секунд — если дольше, то глобальная проблема
+          timeout: 15000,
         });
       }
     } catch (e) {
@@ -131,77 +141,33 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
     const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
 
-    // 3. Логика парсинга офферов (Cluster Match v4.0)
+    // 3. Логика парсинга офферов (Cluster Match v5.0)
     const customSelector = showcase.custom_selector || '';
     const data = await page.evaluate((knownBrands, customSelector) => {
       const results = [];
-      const keywords = [
-        "займ",
-        "деньги",
-        "получить",
-        "оформить",
-        "взять",
-        "заявку",
-        "отправить",
-        "кредит",
-        "на карту",
-        "выплата",
-        "микрозайм",
-        "заполнить",
-        "выбрать",
-        "узнать",
-        "подробнее",
-        "подать",
-        "бесплатно",
-        "инфо",
-      ];
+      const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const finTerms = ["сумма", "срок", "ставка", "процент", "дней", "руб"];
-      const stopWords = [
-        "получить деньги",
-        "оформить заявку",
-        "взять займ",
-        "подробнее",
-        "подать заявку",
-        "получить на карту",
-        "выплата",
-        "деньги на карту",
-        "сумма",
-        "срок",
-        "ставка",
-        "одобрение",
-        "заявка",
+      
+      // Известные партнерские домены для идентификации ссылок
+      const affiliateDomains = [
+        "leadgid.ru", "leads.su", "leads.tech", "pxl.leads.su", "t.leads.tech", 
+        "go.leadgid.ru", "vldmnt.ru", "finlaba.ru", "trnsfx.ru", "credyi.ru", "ads.guruleads.ru"
       ];
 
       function isMoney(text) {
         const low = (text || "").toLowerCase().trim();
-        // Для Sravni и Zyamer учитываем более короткие кнопки
-        return (
-          keywords.some((k) => low.includes(k)) ||
-          (low.length > 2 &&
-            low.length < 20 &&
-            (low.includes("одобр") || low.includes("выбр")))
-        );
+        return keywords.some((k) => low.includes(k)) || (low.length > 2 && low.length < 25 && (low.includes("одобр") || low.includes("выбр") || low.includes("подать")));
       }
 
       function isTrashName(text) {
         const low = (text || "").toLowerCase().trim();
         if (!low || low.length < 2) return true;
-        if (
-          stopWords.some(
-            (s) => low === s || (low.includes(s) && low.length < 20),
-          )
-        )
-          return true;
-        if (/^[0-9\s%рубдней.]+$/.test(low)) return true; // Только цифры, валюты, знаки
-        if (low.startsWith("до ") || low.startsWith("от ")) return true; // Суммы
-
-        // Фильтр для мусорных имен из файлов (хеши, длинные ID)
-        // Пример: "n 56cd8a16afda9", "logo moneza e175...", "ekva e175..."
+        // Числа и валюты - мусор для названия
+        if (/^[0-9\s%рубдней.+-]+$/.test(low)) return true;
+        if (low.startsWith("до ") || low.startsWith("от ")) return true;
+        // Технические строки
         if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true;
         if (low.includes("logo") && /[a-z0-9]{5,}/.test(low)) return true;
-        if (low.length > 15 && !/[а-яА-ЯёЁ]/.test(low) && /[0-9]{3,}/.test(low))
-          return true; // Длинные латинские строки с цифрами без кириллицы
-
         return false;
       }
 
@@ -209,60 +175,39 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       const allLinks = Array.from(document.querySelectorAll('a[href*="http"]'))
         .map((a) => {
           try {
-            return new URL(a.href).hostname;
-          } catch (e) {
-            return null;
-          }
+            const url = new URL(a.href);
+            return { hostname: url.hostname, href: a.href };
+          } catch (e) { return null; }
         })
-        .filter((h) => h && h !== window.location.hostname);
+        .filter(Boolean);
 
       const domainCounts = {};
-      allLinks.forEach((d) => (domainCounts[d] = (domainCounts[d] || 0) + 1));
-      const topDomain = Object.entries(domainCounts).sort(
-        (a, b) => b[1] - a[1],
-      )[0]?.[0];
+      allLinks.forEach((l) => (domainCounts[l.hostname] = (domainCounts[l.hostname] || 0) + 1));
+      const topDomain = Object.entries(domainCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
 
       const processedContainers = new Set();
-      // const customSelector = '${showcase.custom_selector || ''}'; // Removed: causing syntax error
-      // customSelector passed as argument
-
       let targets = [];
 
-      // 1. Если задан пользовательский селектор, используем его
+      // 1. Кастомный селектор
       if (customSelector && customSelector.trim()) {
           try {
               const customElements = document.querySelectorAll(customSelector);
-              if (customElements.length > 0) {
-                  // Превращаем NodeList в массив и помечаем как "карточки"
-                  targets = Array.from(customElements);
-                  console.log('Using custom selector:', customSelector, 'Found:', targets.length);
-              }
-          } catch(e) {
-              console.error('Invalid custom selector:', customSelector);
-          }
+              if (customElements.length > 0) targets = Array.from(customElements);
+          } catch(e) {}
       }
 
-      // 2. Если селектор не дал результатов или не задан, используем эвристику
+      // 2. Эвристика (кнопки и ссылки с призывом)
       if (targets.length === 0) {
-          targets = Array.from(
-            document.querySelectorAll(
-              'a, button, [role="button"], .btn, .button, span, div',
-            ),
-          ).filter((el) => {
-            const txt = el.innerText || "";
-            return txt.length > 2 && txt.length < 30 && isMoney(txt);
-          });
+          targets = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'))
+            .filter((el) => isMoney(el.innerText || el.value || ""));
       }
 
       targets.forEach((el) => {
-        // Ищем контейнер карточки
         let card = null;
 
-        // Если это элементы по кастомному селектору, то они сами и есть карточки (или их прямые контейнеры)
         if (customSelector && customSelector.trim()) {
              card = el;
         } else {
-            // Иначе ищем родителя-карточку
             let curr = el;
             for (let i = 0; i < 12; i++) {
               if (!curr || curr === document.body) break;
@@ -271,25 +216,20 @@ async function parseShowcase(showcaseId, retryCount = 0) {
               const rect = curr.getBoundingClientRect();
               const innerText = (curr.innerText || "").toLowerCase();
 
-              // Критерии Cluster Match
               const hasImg = curr.querySelector("img");
-              const hasKnownBrand = knownBrands.some((b) =>
-                innerText.includes(b.toLowerCase()),
-              );
-              const hasFinTerms =
-                finTerms.filter((t) => innerText.includes(t)).length >= 2;
-              const isCardClass =
-                className.includes("card") ||
-                className.includes("offer") ||
-                className.includes("item") ||
-                className.includes("row") ||
-                className.includes("tile");
-              const isSignificant = rect.height > 60 && rect.width > 100;
+              const hasKnownBrand = knownBrands.some((b) => innerText.includes(b.toLowerCase()));
+              const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; // Снизил до 1
+              const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
+              const isSignificant = rect.height > 40 && rect.width > 80;
 
-              // Анализ ссылки
-              const cardLink = curr.querySelector('a[href*="http"]');
-              const hasAffLink =
-                cardLink && topDomain && cardLink.href.includes(topDomain);
+              // Проверка ссылки: либо topDomain, либо любой из affiliateDomains
+              const cardLinks = Array.from(curr.querySelectorAll('a[href*="http"]'));
+              const hasAffLink = cardLinks.some(al => {
+                  try {
+                      const host = new URL(al.href).hostname;
+                      return (topDomain && host === topDomain) || affiliateDomains.some(ad => host.includes(ad));
+                  } catch(e) { return false; }
+              });
 
               let factors = 0;
               if (isCardClass) factors++;
@@ -298,11 +238,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
               if (hasImg) factors++;
               if (hasAffLink) factors += 2;
 
-              // Понижаем порог для Zyamer, если есть сильные маркеры
-              if (
-                (factors >= 3 || (hasKnownBrand && factors >= 2)) &&
-                isSignificant
-              ) {
+              if (factors >= 2 && isSignificant) { // Порог снижен до 2 для большей охвата
                 card = curr;
                 break;
               }
@@ -313,102 +249,59 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         if (card && !processedContainers.has(card)) {
           processedContainers.add(card);
 
-          const img = card.querySelector("img");
+          const imgs = Array.from(card.querySelectorAll("img"));
+          const img = imgs.find(i => i.width > 20) || imgs[0];
           let name = "";
 
-          // -- Извлекаем название МФО --
-          // 1. Из альта картинки
+          // Извлечение имени
           if (img) name = img.alt || img.title || "";
-
-          // 2. Из имени файла картинки (часто там бренд)
-          if (img && (!name || isTrashName(name))) {
-            const src = img.src || "";
-            const fileName = src
-              .split("/")
-              .pop()
-              .split(".")[0]
-              .replace(/[-_]/g, " ");
-            if (fileName.length > 3 && !isTrashName(fileName)) name = fileName;
-          }
-
-          // 3. Из заголовков внутри
+          
           if (!name || isTrashName(name)) {
-            const heads = Array.from(
-              card.querySelectorAll(
-                'h1, h2, h3, h4, b, strong, [class*="title"], [class*="name"]',
-              ),
-            );
+            // Ищем в заголовках и болдах
+            const heads = Array.from(card.querySelectorAll('h1, h2, h3, h4, b, strong, [class*="title"], [class*="name"]'));
             for (const h of heads) {
               const val = h.innerText.trim();
-              if (val && !isTrashName(val)) {
-                name = val;
-                break;
-              }
+              if (val && !isTrashName(val)) { name = val; break; }
             }
           }
 
-          // 4. Из всех текстов (первое не-мусорное)
           if (!name || isTrashName(name)) {
-            const allText = card.innerText
-              .split("\n")
-              .map((t) => t.trim())
-              .filter((t) => t.length > 2);
-            name = allText.find((t) => !isTrashName(t)) || "Offer";
+            // Пробуем взять текст самой ссылки-кнопки (если там не мусор)
+            const btnText = el.innerText.trim();
+            if (btnText && !isMoney(btnText) && !isTrashName(btnText)) name = btnText;
           }
 
-          // Финальная очистка
-          name = name
-            .split(/[.,!?;|]/)[0]
-            .substring(0, 35)
-            .trim();
-          if (isTrashName(name)) name = "Offer";
+          // Если всё еще нет - ставим "Offer" и пусть бэкенд вынимает из ссылки
+          if (!name || isTrashName(name)) name = "Offer";
 
-          // Исправленное извлечение ссылки
-          let href = el.getAttribute('href');
-          
-          // Если у триггера нет ссылки, ищем внутри карточки
-          if (!href || href === '#' || href.startsWith('javascript')) {
-              const innerLink = card.querySelector('a[href^="http"], a[href^="/"]');
-              if (innerLink) href = innerLink.getAttribute('href');
+          // Извлечение ссылки
+          let href = (el.tagName === 'A') ? el.href : null;
+          if (!href || href.includes('javascript') || href.endsWith('#') || href === window.location.href) {
+              const innerLink = card.querySelector('a[href^="http"]');
+              if (innerLink) href = innerLink.href;
           }
-          
-          // Если все еще нет, пробуем у самой карточки
-          if (!href) href = card.getAttribute('href');
 
-           // Формируем абсолютный URL
-          let finalLink = "";
-          if (href) {
-              if (href.startsWith('http')) finalLink = href;
-              else if (href.startsWith('/')) finalLink = window.location.origin + href;
-              else finalLink = window.location.origin + '/' + href;
-          } else {
-               // Если ссылки совсем нет, пропускаем (чтобы не спамить заглушками)
-               finalLink = null; 
+          if (href && href.startsWith('http')) {
+              results.push({
+                company_name: name.substring(0, 40).trim(),
+                link: href,
+                image_url: img?.src || null,
+                placement_type: "main",
+              });
           }
-          
-          if (!finalLink) return; // Skip invalid links
-
-          results.push({
-            company_name: name,
-            link: finalLink,
-            image_url: img?.src || null,
-            placement_type: "main",
-          });
         }
       });
 
-      // Дедупликация по имени МФО
+      // Дедупликация (но разрешаем "Offer" несколько раз, если ссылки разные)
       const final = [];
-      const seen = new Set();
+      const seenLinks = new Set();
       results.forEach((item) => {
-        const key = item.company_name.toLowerCase();
-        if (!seen.has(key) && item.company_name !== "Offer") {
-          seen.add(key);
+        if (!seenLinks.has(item.link)) {
+          seenLinks.add(item.link);
           final.push(item);
         }
       });
 
-      return final;
       return final;
     }, brandNames, customSelector);
 

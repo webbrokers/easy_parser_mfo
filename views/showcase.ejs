@@ -3,7 +3,10 @@
 <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
     <div class="mb-8 flex items-center gap-4">
         <a href="/" class="text-gray-400 hover:text-manus-text">← Назад</a>
-        <h2 class="text-3xl font-bold text-manus-text"><%= showcase.name %></h2>
+        <div>
+            <h2 class="text-3xl font-bold text-manus-text"><%= showcase.name %></h2>
+            <p class="text-sm text-gray-400 mt-0.5"><%= showcase.url %></p>
+        </div>
     </div>
 
     <% if (latest && latest.run) { %>
