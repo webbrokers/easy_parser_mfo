@@ -165,6 +165,9 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         // Числа и валюты - мусор для названия
         if (/^[0-9\s%рубдней.+-]+$/.test(low)) return true;
         if (low.startsWith("до ") || low.startsWith("от ")) return true;
+        // Технические слова и заголовки колонок
+        const stopWords = ["сумма", "срок", "ставка", "отзыв", "подробнее", "получить", "заявка", "logo", "выплата", "минуту", "руб", "дней", "процент", "без отказа", "онлайн", "на карту", "кредит", "займ"];
+        if (stopWords.some(sw => low === sw || (low.includes(sw) && low.length < 15))) return true;
         // Технические строки
         if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true;
         if (low.includes("logo") && /[a-z0-9]{5,}/.test(low)) return true;
@@ -254,7 +257,21 @@ async function parseShowcase(showcaseId, retryCount = 0) {
           let name = "";
 
           // Извлечение имени
-          if (img) name = img.alt || img.title || "";
+          // 1. ПРИОРИТЕТ: Из имени файла картинки (на Zyamer названия часто зашиты в src)
+          if (img && img.src) {
+              let srcName = img.src.split('/').pop().split('.')[0]
+                  .replace(/[-_]/g, ' ')
+                  .replace(/[0-9]+x[0-9]+/g, '') // Убираем размеры типа 150x150
+                  .replace(/[0-9]{4}/g, '')      // Убираем года типа 2024
+                  .trim();
+              
+              if (srcName && srcName.length > 2 && !isTrashName(srcName)) {
+                  name = srcName;
+              }
+          }
+
+          // 2. Если из файла не вышло, пробуем Альт
+          if (!name && img) name = img.alt || img.title || "";
           
           if (!name || isTrashName(name)) {
             // Ищем в заголовках и болдах
@@ -276,9 +293,17 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
           // Извлечение ссылки
           let href = (el.tagName === 'A') ? el.href : null;
+          
+          // Если кнопки/ссылки нет или она пустая, ищем ЛЮБУЮ внешнюю ссылку в карточке
           if (!href || href.includes('javascript') || href.endsWith('#') || href === window.location.href) {
-              const innerLink = card.querySelector('a[href^="http"]');
-              if (innerLink) href = innerLink.href;
+              const allCardLinks = Array.from(card.querySelectorAll('a[href^="http"]'));
+              const validAffLink = allCardLinks.find(al => {
+                  try {
+                      const host = new URL(al.href).hostname;
+                      return host !== window.location.hostname && (topDomain && host === topDomain || affiliateDomains.some(ad => host.includes(ad)));
+                  } catch(e) { return false; }
+              });
+              if (validAffLink) href = validAffLink.href;
           }
 
           if (href && href.startsWith('http')) {
