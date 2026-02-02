@@ -288,6 +288,18 @@ async function parseShowcase(showcaseId, retryCount = 0) {
             if (btnText && !isMoney(btnText) && !isTrashName(btnText)) name = btnText;
           }
 
+          // 3. НОВИНКА v5.3: Глубокое сопоставление по словарю (если другие методы не дали точного имени)
+          if (!name || isTrashName(name) || name === "Offer") {
+             const html = card.outerHTML.toLowerCase();
+             for (const b of knownBrands) {
+                 // Ищем только если название бренда достаточно длинное ( > 3 символов) чтобы избежать ложных срабатываний
+                 if (b.length > 3 && html.includes(b.toLowerCase())) {
+                     name = b;
+                     break;
+                 }
+             }
+          }
+
           // Если всё еще нет - ставим "Offer" и пусть бэкенд вынимает из ссылки
           if (!name || isTrashName(name)) name = "Offer";
 
