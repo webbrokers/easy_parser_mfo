@@ -225,7 +225,6 @@ app.post('/api/run-selected-showcases', async (req, res) => {
     }
 });
 
-// API: Генерация тестовых данных за 7 дней
 app.post('/api/clear-all-data', async (req, res) => {
     try {
         console.log('[API] Удаление всех данных...');
@@ -246,6 +245,33 @@ app.post('/api/clear-all-data', async (req, res) => {
     }
 });
 
+// API: Удаление только тестовых данных
+app.post('/api/clear-test-data', async (req, res) => {
+    try {
+        console.log('[API] Удаление только тестовых данных...');
+        
+        db.transaction(() => {
+            // 1. Получаем ID всех тестовых запусков
+            const testRuns = db.prepare('SELECT id FROM parsing_runs WHERE is_test = 1').all();
+            const runIds = testRuns.map(r => r.id);
+            
+            if (runIds.length > 0) {
+                const placeholders = runIds.map(() => '?').join(',');
+                // 2. Удаляем офферы, связанные с тестовыми запусками
+                db.prepare(`DELETE FROM offer_stats WHERE run_id IN (${placeholders})`).run(...runIds);
+                // 3. Удаляем сами тестовые запуски
+                db.prepare(`DELETE FROM parsing_runs WHERE is_test = 1`).run();
+            }
+        })();
+        
+        console.log('[API] Тестовые данные успешно удалены');
+        res.json({ success: true, message: 'Тестовые данные успешно удалены' });
+    } catch (e) {
+        console.error('[API] Ошибка при удалении тестовых данных:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/seed-test-data', async (req, res) => {
     try {
         console.log('[API] Генерация тестовых данных...');
@@ -260,7 +286,7 @@ app.post('/api/seed-test-data', async (req, res) => {
         ];
 
         // Транзакция для скорости
-        const insertRun = db.prepare('INSERT INTO parsing_runs (showcase_id, run_date, status, screenshot_path) VALUES (?, ?, ?, ?)');
+        const insertRun = db.prepare('INSERT INTO parsing_runs (showcase_id, run_date, status, screenshot_path, is_test) VALUES (?, ?, ?, ?, ?)');
         const insertOffer = db.prepare('INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type) VALUES (?, ?, ?, ?, ?, ?)');
 
         db.transaction(() => {
@@ -269,8 +295,8 @@ app.post('/api/seed-test-data', async (req, res) => {
                 const date = DateTime.now().minus({ days: i }).toFormat('yyyy-MM-dd HH:mm:ss');
                 
                 showcases.forEach(showcase => {
-                    // Создаем parsing_run
-                    const runResult = insertRun.run(showcase.id, date, 'success', '');
+                    // Создаем parsing_run с меткой is_test = 1
+                    const runResult = insertRun.run(showcase.id, date, 'success', '', 1);
                     const runId = runResult.lastInsertRowid;
 
                     // Генерируем 10-15 офферов

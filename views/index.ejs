@@ -79,6 +79,15 @@
                                     <p class="text-xs text-gray-500 mt-0.5 group-hover:text-blue-400">Генерация за 7 дней</p>
                                 </div>
                             </a>
+                            <a href="#" onclick="clearTestData(); return false;" class="group flex items-center px-4 py-3 text-sm text-orange-700 hover:bg-orange-50 hover:text-orange-800 transition-colors cursor-pointer border-t border-gray-100" role="menuitem">
+                                <svg class="mr-3 h-5 w-5 text-orange-400 group-hover:text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                <div>
+                                    <p class="font-medium">Удалить тестовые данные</p>
+                                    <p class="text-xs text-orange-500 mt-0.5 group-hover:text-orange-600">Только сгенерированные записи</p>
+                                </div>
+                            </a>
                             <a href="#" onclick="clearAllData(); return false;" class="group flex items-center px-4 py-3 text-sm text-red-700 hover:bg-red-50 hover:text-red-800 transition-colors cursor-pointer border-t border-gray-100" role="menuitem">
                                 <svg class="mr-3 h-5 w-5 text-red-400 group-hover:text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -236,7 +245,13 @@
                                 </button>
                                 
                                 <!-- Selector Config Button -->
-                                <button onclick="openSelectorModal('<%= site.id %>', '<%= site.name %>', '<%= site.custom_selector || '' %>')" class="flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors cursor-pointer p-1" title="Настроить селектор">
+                                <button 
+                                    onclick="openSelectorModal(this)" 
+                                    data-id="<%= site.id %>"
+                                    data-name="<%= site.name %>"
+                                    data-selector="<%= site.custom_selector || '' %>"
+                                    class="flex items-center justify-center text-gray-400 hover:text-blue-600 transition-colors cursor-pointer p-1" 
+                                    title="Настроить селектор">
                                     <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                                     </svg>
@@ -514,6 +529,26 @@
         }
     }
 
+    async function clearTestData() {
+        if (!confirm('Вы уверены? Это удалит ТОЛЬКО тестовые (сгенерированные) данные.\n\nРеальные данные парсинга останутся.')) return;
+        
+        toggleDropdown();
+        try {
+            const res = await fetch('/api/clear-test-data', { method: 'POST' });
+            const data = await res.json();
+            
+            if (data.success) {
+                alert('Тестовые данные успешно удалены!');
+                window.location.reload();
+            } else {
+                alert('Ошибка удаления: ' + (data.error || 'Неизвестная ошибка'));
+            }
+        } catch (e) {
+            alert('Ошибка соединения с сервером');
+            console.error(e);
+        }
+    }
+
     async function clearAllData() {
         if (!confirm('ВНИМАНИЕ! Это удалит ВСЕ данные: все офферы и все запуски парсинга.\n\nВитрины останутся нетронутыми.\n\nВы уверены?')) return;
         
@@ -537,7 +572,11 @@
     }
 
     // Selector Modal Functions
-    function openSelectorModal(id, name, currentSelector) {
+    function openSelectorModal(btn) {
+        const id = btn.getAttribute('data-id');
+        const name = btn.getAttribute('data-name');
+        const currentSelector = btn.getAttribute('data-selector');
+
         document.getElementById('modalShowcaseId').value = id;
         document.getElementById('modalShowcaseName').textContent = name;
         document.getElementById('modalSelector').value = currentSelector;

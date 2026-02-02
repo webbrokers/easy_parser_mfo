@@ -62,6 +62,16 @@ try {
     }
 }
 
+// Миграция: добавляем is_test, если его нет
+try {
+    db.prepare("ALTER TABLE parsing_runs ADD COLUMN is_test INTEGER DEFAULT 0").run();
+    console.log('[DB] Миграция: колонка is_test добавлена в parsing_runs');
+} catch (e) {
+    if (!e.message.includes('duplicate column')) {
+        console.warn('[DB] Предупреждение при миграции is_test:', e.message);
+    }
+}
+
 // Статистика офферов
 db.prepare(`
     CREATE TABLE IF NOT EXISTS offer_stats (

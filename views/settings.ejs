@@ -25,7 +25,13 @@
                                     <p class="text-sm text-gray-400 font-mono"><%= site.url %></p>
                                 </div>
                                 <div class="flex items-center space-x-2">
-                                    <button onclick="openSelectorModal('<%= site.id %>', '<%= site.name %>', '<%= site.custom_selector || '' %>')" class="text-gray-400 hover:text-blue-600 p-2 border border-gray-100 rounded-xl hover:bg-blue-50 transition-all" title="Настроить селектор">
+                                    <button 
+                                        onclick="openSelectorModal(this)" 
+                                        data-id="<%= site.id %>"
+                                        data-name="<%= site.name %>"
+                                        data-selector="<%= site.custom_selector || '' %>"
+                                        class="text-gray-400 hover:text-blue-600 p-2 border border-gray-100 rounded-xl hover:bg-blue-50 transition-all" 
+                                        title="Настроить селектор">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                                         </svg>
@@ -107,7 +113,11 @@
     </div>
 
     <script>
-        function openSelectorModal(id, name, currentSelector) {
+        function openSelectorModal(btn) {
+            const id = btn.getAttribute('data-id');
+            const name = btn.getAttribute('data-name');
+            const currentSelector = btn.getAttribute('data-selector');
+
             document.getElementById('modalShowcaseId').value = id;
             document.getElementById('modalShowcaseName').textContent = name;
             document.getElementById('modalSelector').value = currentSelector;
