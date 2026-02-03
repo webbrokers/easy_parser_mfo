@@ -5,6 +5,69 @@ const path = require("path");
 const fs = require("fs");
 const { NormalizationService } = require("../services/normalization");
 
+/**
+ * Вспомогательная функция для определения бренда через переход по ссылке (Redirect Resolve)
+ */
+async function resolveBrandFromRedirect(browser, url) {
+  if (!url || !url.startsWith("http")) return null;
+
+  let page = null;
+  try {
+    console.log(`[Scraper] [RedirectResolve] Переход по ссылке для определения бренда: ${url}`);
+    page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    );
+    await page.setViewport({ width: 1280, height: 800 });
+
+    // Переходим и ждем, пока URL перестанет меняться (завершатся редиректы)
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 15000 }).catch(e => {
+        console.log(`[Scraper] [RedirectResolve] Таймаут или ошибка перехода, пробуем извлечь что есть: ${e.message}`);
+    });
+
+    const metadata = await page.evaluate(() => {
+      const getMeta = (name) => {
+        const el = document.querySelector(`meta[name="${name}"], meta[property="${name}"], meta[property="og:${name}"]`);
+        return el ? el.getAttribute("content") : null;
+      };
+
+      return {
+        title: document.title,
+        siteName: getMeta("site_name") || getMeta("application-name") || getMeta("apple-mobile-web-app-title"),
+        ogTitle: getMeta("title") || getMeta("og:title"),
+        description: getMeta("description") || getMeta("og:description")
+      };
+    });
+
+    const candidates = [
+        metadata.siteName,
+        metadata.title,
+        metadata.ogTitle
+    ].filter(Boolean);
+
+    await page.close();
+    page = null;
+
+    for (const text of candidates) {
+        // Очищаем от лишнего мусора
+        const potentialBrand = text.split(/[|-]/)[0]
+            .replace(/(официальный сайт|онлайн|займ|кредит|банк|вход|личный кабинет)/gi, "")
+            .trim();
+        
+        if (potentialBrand && potentialBrand.length > 2) {
+            console.log(`[Scraper] [RedirectResolve] Найдено потенциальное имя: "${potentialBrand}"`);
+            return potentialBrand;
+        }
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`[Scraper] [RedirectResolve] Ошибка:`, error.message);
+    if (page) try { await page.close(); } catch(e) {}
+    return null;
+  }
+}
+
 async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
   const showcase = db
     .prepare("SELECT * FROM showcases WHERE id = ?")
@@ -17,6 +80,11 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-web-security",
+      "--disable-dev-shm-usage", // Использовать /tmp вместо /dev/shm (важно для Railway/Docker)
+      "--disable-gpu",           // Отключить GPU для экономии RAM
+      "--no-zygote",             // Экономит память, не создавая лишние процессы
+      "--disable-extensions",    // Отключить расширения
+      "--single-process",        // Опционально: запускать в одном процессе (экспериментально, но экономит память)
     ],
   });
 
@@ -141,15 +209,15 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
 
     const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
     const brandAliases = NormalizationService.BRAND_ALIASES;
+    const allKnownAliases = Object.values(brandAliases).flat().map(a => a.toLowerCase());
 
-    // 3. Логика парсинга офферов (Cluster Match v5.0)
+    // 3. Логика парсинга офферов (Cluster Match v5.1)
     const customSelector = showcase.custom_selector || '';
-    const data = await page.evaluate((knownBrands, aliasesMap, customSelector, scraperVersion) => {
+    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const finTerms = ["сумма", "срок", "ставка", "процент", "дней", "руб"];
       
-      // Известные партнерские домены для идентификации ссылок
       const affiliateDomains = [
         "leadgid.ru", "leads.su", "leads.tech", "pxl.leads.su", "t.leads.tech", 
         "go.leadgid.ru", "vldmnt.ru", "finlaba.ru", "trnsfx.ru", "credyi.ru", "ads.guruleads.ru", "guruleads.ru"
@@ -163,10 +231,12 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
       function isTrashName(text) {
         const low = (text || "").toLowerCase().trim();
         if (!low || low.length < 2) return true;
-        // Числа и валюты - мусор для названия
+        
+        // КРИТИЧНО v2.1: Если слово является известным алиасом, это НЕ мусор
+        if (allAliases.includes(low)) return false;
+
         if (/^[0-9\s%рубдней.+-]+$/.test(low)) return true;
         
-        // Новинка v2.0: расширенный список стоп-слов
         const stopWords = [
             "сумма", "срок", "ставка", "отзыв", "подробнее", "получить", "заявка", "logo", 
             "выплата", "минуту", "руб", "дней", "процент", "без отказа", "онлайн", 
@@ -174,16 +244,23 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
             "лицензия", "вход", "кабинет", "мин", "условие"
         ];
         
-        if (stopWords.some(sw => low === sw || (low.includes(sw) && low.length < 15))) return true;
+        // КРИТИЧНО v2.1: Используем более точное сопоставление для длинных стоп-слов, 
+        // чтобы не отсеивать "Займер" (из-за "Займ")
+        if (stopWords.some(sw => {
+            if (low === sw) return true;
+            // Если стоп-слово короткое (займ), проверяем только точное совпадение или пробел
+            if (sw === "займ" || sw === "сумма" || sw === "срок" || sw === "ставка") {
+                return low === sw || low.includes(" " + sw) || low.includes(sw + " ");
+            }
+            return low.includes(sw) && low.length < 15;
+        })) return true;
+
         if (low.startsWith("до ") || low.startsWith("от ")) return true;
-        
-        // Технические строки
         if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true;
         if (low.includes("logo") && /[a-z0-9]{5,}/.test(low)) return true;
         return false;
       }
 
-      // 0. Анализ паттернов ссылок
       const allLinks = Array.from(document.querySelectorAll('a[href*="http"]'))
         .map((a) => {
           try {
@@ -200,7 +277,6 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
       const processedContainers = new Set();
       let targets = [];
 
-      // 1. Кастомный селектор
       if (customSelector && customSelector.trim()) {
           try {
               const customElements = document.querySelectorAll(customSelector);
@@ -208,7 +284,6 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
           } catch(e) {}
       }
 
-      // 2. Эвристика (кнопки и ссылки с призывом)
       if (targets.length === 0) {
           targets = Array.from(document.querySelectorAll('a, button, [role="button"], .btn, .button'))
             .filter((el) => isMoney(el.innerText || el.value || ""));
@@ -229,12 +304,14 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
               const innerText = (curr.innerText || "").toLowerCase();
 
               const hasImg = curr.querySelector("img");
-              const hasKnownBrand = knownBrands.some((b) => innerText.includes(b.toLowerCase()));
+              
+              // КРИТИЧНО v2.1: Проверяем по ВСЕМ алиасам для нахождения контейнера
+              const hasKnownBrand = allAliases.some(a => innerText.includes(a));
+              
               const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; 
               const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
               const isSignificant = rect.height > 40 && rect.width > 80;
 
-              // Проверка ссылки: либо topDomain, либо любой из affiliateDomains
               const cardLinks = Array.from(curr.querySelectorAll('a[href*="http"]'));
               const hasAffLink = cardLinks.some(al => {
                   try {
@@ -265,9 +342,41 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
           const img = imgs.find(i => i.width > 20) || imgs[0];
           let name = "";
 
-          // Извлечение имени
-          // 1. ПРИОРИТЕТ: Из имени файла картинки (часто самые чистые данные)
-          if (img && img.src) {
+          // Извлечение имени v2.1 (Новая иерархия)
+          
+          // 1. ПРИОРИТЕТ: Специальные классы (как на OdobrenZaym)
+          const priorityNames = Array.from(card.querySelectorAll('.offer__name, .offer-name, .name, .title, .brand-name'));
+          for (const pn of priorityNames) {
+              const val = pn.innerText.trim();
+              if (val && !isTrashName(val)) { name = val; break; }
+          }
+
+          // 2. Технические атрибуты (как на Zyamer: onclick="... {offer: 'Lime'} ...")
+          if (!name) {
+              const elementsWithTechnicalData = Array.from(card.querySelectorAll('[onclick], [data-offer], [data-name], [data-brand]'));
+              for (const te of elementsWithTechnicalData) {
+                  const technicalString = (te.getAttribute('onclick') || '') + ' ' + 
+                                       (te.getAttribute('data-offer') || '') + ' ' +
+                                       (te.getAttribute('data-name') || '') + ' ' + 
+                                       (te.getAttribute('data-brand') || '');
+                  
+                  // Ищем упоминание любого алиаса в технической строке
+                  const foundAlias = allAliases.find(a => a.length > 2 && technicalString.toLowerCase().includes(a));
+                  if (foundAlias) {
+                      // Сопоставляем алиас с основным именем бренда через aliasesMap
+                      for (const [brand, aliases] of Object.entries(aliasesMap)) {
+                          if (aliases.some(as => as.toLowerCase() === foundAlias)) {
+                              name = brand;
+                              break;
+                          }
+                      }
+                      if (name) break;
+                  }
+              }
+          }
+
+          // 3. Из имени файла картинки
+          if (!name && img && img.src) {
               let srcName = img.src.split('/').pop().split('.')[0]
                   .replace(/[-_]/g, ' ')
                   .replace(/[0-9]+x[0-9]+/g, '') 
@@ -279,54 +388,34 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
               }
           }
 
-          // 2. Если из файла не вышло, пробуем Альт
+          // 4. Альт
           if (!name && img) name = img.alt || img.title || "";
           
           if (!name || isTrashName(name)) {
-            // Ищем в заголовках и болдах
-            const heads = Array.from(card.querySelectorAll('h1, h2, h3, h4, b, strong, [class*="title"], [class*="name"]'));
+            const heads = Array.from(card.querySelectorAll('h1, h2, h3, h4, b, strong'));
             for (const h of heads) {
               const val = h.innerText.trim();
               if (val && !isTrashName(val)) { name = val; break; }
             }
           }
 
-          if (!name || isTrashName(name)) {
-            const btnText = el.innerText.trim();
-            if (btnText && !isMoney(btnText) && !isTrashName(btnText)) name = btnText;
-          }
-
-          // 3. НОВИНКА v2.0: Глубокое сопоставление по ВСЕМ алиасам
-          if (scraperVersion === "2.0") {
+          // 5. Глубокое сопоставление v2.0+ (Уже было, но обновим для надежности)
+          if (scraperVersion >= "2.0" && (!name || isTrashName(name) || name === "Offer")) {
               const html = card.outerHTML.toLowerCase();
               const text = card.innerText.toLowerCase();
               
-              // Ищем среди всех алиасов всех брендов
               for (const [brand, aliases] of Object.entries(aliasesMap)) {
                   if (aliases.some(a => text.includes(a.toLowerCase()) || html.includes(`/${a.toLowerCase()}/`) || html.includes(`_${a.toLowerCase()}_`))) {
                       name = brand;
                       break;
                   }
               }
-          } else {
-              // Логика v1.0 (старое глубокое сопоставление только по именам)
-              if (!name || isTrashName(name) || name === "Offer") {
-                 const html = card.outerHTML.toLowerCase();
-                 for (const b of knownBrands) {
-                     if (b.length > 3 && html.includes(b.toLowerCase())) {
-                         name = b;
-                         break;
-                     }
-                 }
-              }
           }
 
-          // Если всё еще нет - ставим "Offer"
           if (!name || isTrashName(name)) name = "Offer";
 
-          // Извлечение ссылки
+          // Ссылка
           let href = (el.tagName === 'A') ? el.href : null;
-          
           if (!href || href.includes('javascript') || href.endsWith('#') || href === window.location.href) {
               const allCardLinks = Array.from(card.querySelectorAll('a[href^="http"]'));
               const validAffLink = allCardLinks.find(al => {
@@ -349,7 +438,6 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
         }
       });
 
-      // Дедупликация
       const final = [];
       const seenLinks = new Set();
       results.forEach((item) => {
@@ -360,7 +448,7 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
       });
 
       return final;
-    }, brandNames, brandAliases, customSelector, version);
+    }, brandNames, brandAliases, allKnownAliases, customSelector, version);
 
     console.log(`[Scraper v${version}] Парсинг завершен. Найдено карточек: ${data.length}`);
 
@@ -523,6 +611,18 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
 
     db.prepare(`UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`)
       .run(finalMethod, runId);
+
+    // --- REDIRECT RESOLVE v2.2 (Определяем бренды для "Offer") ---
+    for (let i = 0; i < data.length; i++) {
+        const offer = data[i];
+        if (offer.company_name === "Offer" && offer.link) {
+            const resolvedName = await resolveBrandFromRedirect(browser, offer.link);
+            if (resolvedName) {
+                console.log(`[Scraper] [RedirectResolve] Бренд определен: "${resolvedName}" (был Offer)`);
+                offer.company_name = resolvedName;
+            }
+        }
+    }
 
     console.log(`[Scraper v${version}] Финальное количество офферов: ${data.length}`);
 

@@ -204,18 +204,24 @@ app.post('/api/run-selected-showcases', async (req, res) => {
 
         console.log(`[API] Запуск выборочного парсинга для: ${showcase_ids.join(', ')}`);
         
-        // Запускаем асинхронно, не блокируя ответ
+        // Запускаем асинхронно, не блокируя ответ, но параллельно с лимитом
         (async () => {
             const { version = '2.0' } = req.body;
+            const { asyncPool } = require('./utils/async-pool');
+            const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
             const showcases = db.prepare(`SELECT * FROM showcases WHERE id IN (${showcase_ids.join(',')})`).all();
-            for (const showcase of showcases) {
+            
+            console.log(`[API] Запуск параллельного парсинга (лимит ${concurrency} потока)...`);
+            
+            await asyncPool(concurrency, showcases, async (showcase) => {
                 try {
                     console.log(`[API] Парсинг витрины ${showcase.url} (v${version})...`);
                     await parseShowcase(showcase.id, version);
                 } catch (e) {
                     console.error(`[API] Ошибка парсинга ${showcase.url}:`, e);
                 }
-            }
+            });
+            
             console.log(`[API] Выборочный парсинг завершен`);
         })();
 
@@ -398,13 +404,17 @@ app.post('/api/showcase/:id/update', (req, res) => {
 app.post('/api/run-all', async (req, res) => {
     const { version = '2.0' } = req.body;
     const sites = db.prepare('SELECT id FROM showcases WHERE is_active = 1').all();
+    const { asyncPool } = require('./utils/async-pool');
+    const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
     const results = [];
     
-    // Запускаем последовательно, чтобы не положить систему
-    for (const site of sites) {
+    // Запускаем параллельно с лимитом
+    console.log(`[API] Запуск полного парсинга (лимит ${concurrency} потока)...`);
+    
+    await asyncPool(concurrency, sites, async (site) => {
         const result = await parseShowcase(site.id, version);
         results.push({ id: site.id, ...result });
-    }
+    });
     
     res.json({ success: true, results });
 });

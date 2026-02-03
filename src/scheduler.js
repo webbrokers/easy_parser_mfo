@@ -8,7 +8,10 @@ async function dailyTask() {
     
     let report = `<b>📊 Ежедневный отчет парсинга</b>\nДата: ${new Date().toLocaleDateString()}\n\n`;
     
-    for (const site of sites) {
+    const { asyncPool } = require('./utils/async-pool');
+    const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
+    
+    await asyncPool(concurrency, sites, async (site) => {
         console.log(`[Scheduler] Parsing ${site.name}...`);
         const result = await parseShowcase(site.id);
         
@@ -17,7 +20,7 @@ async function dailyTask() {
         } else {
             report += `❌ ${site.name}: Ошибка (${result.error})\n`;
         }
-    }
+    });
     
     await sendTelegramMessage(report);
     console.log('[Scheduler] Daily task finished.');
