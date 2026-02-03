@@ -97,7 +97,10 @@ if (count === 0) {
         { url: 'https://zyamer.ru/popzaym/', name: 'Zyamer Popzaym' },
         { url: 'https://odobrenzaym.ru/', name: 'Odobren Zaym' },
         { url: 'https://www.sravni.ru/zaimy/', name: 'Sravni.ru Zaimy' },
-        { url: 'https://brobank.ru/zajmy/', name: 'Brobank.ru Zajmy' }
+        { url: 'https://brobank.ru/zajmy/', name: 'Brobank.ru Zajmy' },
+        { url: 'https://zaimis-ka.online/', name: 'Zaimis-ka' },
+        { url: 'https://rating-zaimov.ru/zaimy-bez-otkaza', name: 'Rating Zaimov' },
+        { url: 'https://denga.info/', name: 'Denga Info' }
     ];
     
     const insert = db.prepare('INSERT INTO showcases (url, name) VALUES (?, ?)');

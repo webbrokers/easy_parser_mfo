@@ -339,8 +339,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
               if (hasAffLink) factors += 2;
 
               if (factors >= 2 && isSignificant) { 
-                card = curr;
-                break;
+                card = curr; // Нашли карточку, но не прерываемся, ищем самый внешний контейнер (v2.5)
               }
               curr = curr.parentElement;
             }
@@ -454,14 +453,24 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         }
       });
 
-      // v2.4 Умная дедупликация: удаляем только если совпадает и ссылка и имя
+      // v2.5 Умная дедупликация: 
+      // Приоритет отдаем карточкам с реальными ссылками
       const final = [];
-      const seenItems = new Set();
       results.forEach((item) => {
-        const key = `${item.link}|${item.company_name}`;
-        if (!seenItems.has(key)) {
-          seenItems.add(key);
-          final.push(item);
+        // Ищем, нет ли уже такого оффера в final (по имени, ссылке или картинке)
+        const duplicateIndex = final.findIndex(f => 
+            (f.company_name === item.company_name && f.company_name !== 'Offer') || 
+            (f.link === item.link && item.link !== '#unknown') ||
+            (f.image_url && item.image_url && f.image_url === item.image_url)
+        );
+
+        if (duplicateIndex === -1) {
+            final.push(item);
+        } else {
+            // Если нашли дубль, заменяем его текущим, ТОЛЬКО если у текущего есть ссылка, а у старого — нет
+            if (item.link !== '#unknown' && final[duplicateIndex].link === '#unknown') {
+                final[duplicateIndex] = item;
+            }
         }
       });
 
