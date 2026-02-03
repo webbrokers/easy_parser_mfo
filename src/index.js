@@ -206,11 +206,12 @@ app.post('/api/run-selected-showcases', async (req, res) => {
         
         // Запускаем асинхронно, не блокируя ответ
         (async () => {
+            const { version = '2.0' } = req.body;
             const showcases = db.prepare(`SELECT * FROM showcases WHERE id IN (${showcase_ids.join(',')})`).all();
             for (const showcase of showcases) {
                 try {
-                    console.log(`[API] Парсинг витрины ${showcase.url}...`);
-                    await parseShowcase(showcase);
+                    console.log(`[API] Парсинг витрины ${showcase.url} (v${version})...`);
+                    await parseShowcase(showcase.id, version);
                 } catch (e) {
                     console.error(`[API] Ошибка парсинга ${showcase.url}:`, e);
                 }
@@ -361,7 +362,8 @@ app.get('/api/showcases/active', (req, res) => {
 // API для запуска парсинга одной витрины
 app.post('/api/run-showcase/:id', async (req, res) => {
     try {
-        const result = await parseShowcase(req.params.id);
+        const { version = '2.0' } = req.body;
+        const result = await parseShowcase(req.params.id, version);
         res.json({ success: true, ...result });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -394,12 +396,13 @@ app.post('/api/showcase/:id/update', (req, res) => {
 
 // API для запуска парсинга
 app.post('/api/run-all', async (req, res) => {
+    const { version = '2.0' } = req.body;
     const sites = db.prepare('SELECT id FROM showcases WHERE is_active = 1').all();
     const results = [];
     
     // Запускаем последовательно, чтобы не положить систему
     for (const site of sites) {
-        const result = await parseShowcase(site.id);
+        const result = await parseShowcase(site.id, version);
         results.push({ id: site.id, ...result });
     }
     

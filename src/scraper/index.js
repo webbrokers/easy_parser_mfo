@@ -5,7 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const { NormalizationService } = require("../services/normalization");
 
-async function parseShowcase(showcaseId, retryCount = 0) {
+async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
   const showcase = db
     .prepare("SELECT * FROM showcases WHERE id = ?")
     .get(showcaseId);
@@ -29,7 +29,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
   await page.setViewport({ width: 1280, height: 1080 });
 
   try {
-    console.log(`[Scraper] Начинаю парсинг: ${showcase.url}`);
+    console.log(`[Scraper v${version}] Начинаю парсинг: ${showcase.url}`);
     await page.goto(showcase.url, {
       waitUntil: "networkidle2",
       timeout: 60000,
@@ -119,11 +119,11 @@ async function parseShowcase(showcaseId, retryCount = 0) {
     const runResult = db
       .prepare(
         `
-            INSERT INTO parsing_runs (showcase_id, status, screenshot_path)
-            VALUES (?, ?, ?)
+            INSERT INTO parsing_runs (showcase_id, status, screenshot_path, parsing_method)
+            VALUES (?, ?, ?, ?)
         `,
       )
-      .run(showcaseId, "success", `/screenshots/${screenshotName}`);
+      .run(showcaseId, "success", `/screenshots/${screenshotName}`, `v${version}`);
 
     const runId = runResult.lastInsertRowid;
 
@@ -140,10 +140,11 @@ async function parseShowcase(showcaseId, retryCount = 0) {
     }
 
     const brandNames = Object.keys(NormalizationService.BRAND_ALIASES);
+    const brandAliases = NormalizationService.BRAND_ALIASES;
 
     // 3. Логика парсинга офферов (Cluster Match v5.0)
     const customSelector = showcase.custom_selector || '';
-    const data = await page.evaluate((knownBrands, customSelector) => {
+    const data = await page.evaluate((knownBrands, aliasesMap, customSelector, scraperVersion) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const finTerms = ["сумма", "срок", "ставка", "процент", "дней", "руб"];
@@ -151,7 +152,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       // Известные партнерские домены для идентификации ссылок
       const affiliateDomains = [
         "leadgid.ru", "leads.su", "leads.tech", "pxl.leads.su", "t.leads.tech", 
-        "go.leadgid.ru", "vldmnt.ru", "finlaba.ru", "trnsfx.ru", "credyi.ru", "ads.guruleads.ru"
+        "go.leadgid.ru", "vldmnt.ru", "finlaba.ru", "trnsfx.ru", "credyi.ru", "ads.guruleads.ru", "guruleads.ru"
       ];
 
       function isMoney(text) {
@@ -164,10 +165,18 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         if (!low || low.length < 2) return true;
         // Числа и валюты - мусор для названия
         if (/^[0-9\s%рубдней.+-]+$/.test(low)) return true;
-        if (low.startsWith("до ") || low.startsWith("от ")) return true;
-        // Технические слова и заголовки колонок
-        const stopWords = ["сумма", "срок", "ставка", "отзыв", "подробнее", "получить", "заявка", "logo", "выплата", "минуту", "руб", "дней", "процент", "без отказа", "онлайн", "на карту", "кредит", "займ"];
+        
+        // Новинка v2.0: расширенный список стоп-слов
+        const stopWords = [
+            "сумма", "срок", "ставка", "отзыв", "подробнее", "получить", "заявка", "logo", 
+            "выплата", "минуту", "руб", "дней", "процент", "без отказа", "онлайн", 
+            "на карту", "кредит", "займ", "взять", "оформить", "рублей", "выдача",
+            "лицензия", "вход", "кабинет", "мин", "условие"
+        ];
+        
         if (stopWords.some(sw => low === sw || (low.includes(sw) && low.length < 15))) return true;
+        if (low.startsWith("до ") || low.startsWith("от ")) return true;
+        
         // Технические строки
         if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true;
         if (low.includes("logo") && /[a-z0-9]{5,}/.test(low)) return true;
@@ -221,7 +230,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
 
               const hasImg = curr.querySelector("img");
               const hasKnownBrand = knownBrands.some((b) => innerText.includes(b.toLowerCase()));
-              const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; // Снизил до 1
+              const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; 
               const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
               const isSignificant = rect.height > 40 && rect.width > 80;
 
@@ -241,7 +250,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
               if (hasImg) factors++;
               if (hasAffLink) factors += 2;
 
-              if (factors >= 2 && isSignificant) { // Порог снижен до 2 для большей охвата
+              if (factors >= 2 && isSignificant) { 
                 card = curr;
                 break;
               }
@@ -257,12 +266,12 @@ async function parseShowcase(showcaseId, retryCount = 0) {
           let name = "";
 
           // Извлечение имени
-          // 1. ПРИОРИТЕТ: Из имени файла картинки (на Zyamer названия часто зашиты в src)
+          // 1. ПРИОРИТЕТ: Из имени файла картинки (часто самые чистые данные)
           if (img && img.src) {
               let srcName = img.src.split('/').pop().split('.')[0]
                   .replace(/[-_]/g, ' ')
-                  .replace(/[0-9]+x[0-9]+/g, '') // Убираем размеры типа 150x150
-                  .replace(/[0-9]{4}/g, '')      // Убираем года типа 2024
+                  .replace(/[0-9]+x[0-9]+/g, '') 
+                  .replace(/[0-9]{4}/g, '')      
                   .trim();
               
               if (srcName && srcName.length > 2 && !isTrashName(srcName)) {
@@ -283,30 +292,41 @@ async function parseShowcase(showcaseId, retryCount = 0) {
           }
 
           if (!name || isTrashName(name)) {
-            // Пробуем взять текст самой ссылки-кнопки (если там не мусор)
             const btnText = el.innerText.trim();
             if (btnText && !isMoney(btnText) && !isTrashName(btnText)) name = btnText;
           }
 
-          // 3. НОВИНКА v5.3: Глубокое сопоставление по словарю (если другие методы не дали точного имени)
-          if (!name || isTrashName(name) || name === "Offer") {
-             const html = card.outerHTML.toLowerCase();
-             for (const b of knownBrands) {
-                 // Ищем только если название бренда достаточно длинное ( > 3 символов) чтобы избежать ложных срабатываний
-                 if (b.length > 3 && html.includes(b.toLowerCase())) {
-                     name = b;
-                     break;
+          // 3. НОВИНКА v2.0: Глубокое сопоставление по ВСЕМ алиасам
+          if (scraperVersion === "2.0") {
+              const html = card.outerHTML.toLowerCase();
+              const text = card.innerText.toLowerCase();
+              
+              // Ищем среди всех алиасов всех брендов
+              for (const [brand, aliases] of Object.entries(aliasesMap)) {
+                  if (aliases.some(a => text.includes(a.toLowerCase()) || html.includes(`/${a.toLowerCase()}/`) || html.includes(`_${a.toLowerCase()}_`))) {
+                      name = brand;
+                      break;
+                  }
+              }
+          } else {
+              // Логика v1.0 (старое глубокое сопоставление только по именам)
+              if (!name || isTrashName(name) || name === "Offer") {
+                 const html = card.outerHTML.toLowerCase();
+                 for (const b of knownBrands) {
+                     if (b.length > 3 && html.includes(b.toLowerCase())) {
+                         name = b;
+                         break;
+                     }
                  }
-             }
+              }
           }
 
-          // Если всё еще нет - ставим "Offer" и пусть бэкенд вынимает из ссылки
+          // Если всё еще нет - ставим "Offer"
           if (!name || isTrashName(name)) name = "Offer";
 
           // Извлечение ссылки
           let href = (el.tagName === 'A') ? el.href : null;
           
-          // Если кнопки/ссылки нет или она пустая, ищем ЛЮБУЮ внешнюю ссылку в карточке
           if (!href || href.includes('javascript') || href.endsWith('#') || href === window.location.href) {
               const allCardLinks = Array.from(card.querySelectorAll('a[href^="http"]'));
               const validAffLink = allCardLinks.find(al => {
@@ -329,7 +349,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
         }
       });
 
-      // Дедупликация (но разрешаем "Offer" несколько раз, если ссылки разные)
+      // Дедупликация
       const final = [];
       const seenLinks = new Set();
       results.forEach((item) => {
@@ -340,13 +360,15 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       });
 
       return final;
-    }, brandNames, customSelector);
+    }, brandNames, brandAliases, customSelector, version);
 
-    // --- DOUBLE LOGIC: FALLBACK V2 (OdobrenZaym & Co) ---
+    console.log(`[Scraper v${version}] Парсинг завершен. Найдено карточек: ${data.length}`);
+
+    // --- DOUBLE LOGIC: FALLBACK V2 (Отрабатывает только если 0 офферов) ---
     let fallbackData = null;
     if (data.length === 0) {
       console.log(
-        `[Scraper] Основной алгоритм (0 офферов). Запускаю Fallback (JSON + SimpleDOM)...`,
+        `[Scraper] Основной алгоритм v${version} (0 офферов). Запускаю Fallback (JSON + SimpleDOM)...`,
       );
 
       fallbackData = await page.evaluate((customSelector) => {
@@ -397,7 +419,7 @@ async function parseShowcase(showcaseId, retryCount = 0) {
             const offersBlock =
               json.blocks && json.blocks.find((b) => b.block_type === "offers");
             const baseUrl =
-              json.offers_logo_base_url || "https://offers.credilead.ru/"; // Default base
+              json.offers_logo_base_url || "https://offers.credilead.ru/";
 
             if (offersBlock && offersBlock.offers) {
               offersBlock.offers.forEach((o) => {
@@ -411,14 +433,10 @@ async function parseShowcase(showcaseId, retryCount = 0) {
               method = "JSON";
             }
           }
-        } catch (e) {
-          /* Ignore JSON error */
-        }
+        } catch (e) {}
 
-        // 2. SimpleDOM Fallback (Если JSON не сработал)
-        // Ищем тупо по классам "card" или "item" и берем первую ссылку
+        // 2. SimpleDOM Fallback
         if (results.length === 0) {
-          // 0. Если был задан кастомный селектор, но основной проход ничего не нашел (редко, но бывает)
           if (customConfig && customConfig.selector) {
              let customElements = Array.from(document.querySelectorAll(customConfig.selector));
              if (customConfig.requiredClasses.length > 0) {
@@ -436,7 +454,6 @@ async function parseShowcase(showcaseId, retryCount = 0) {
                 if (imgEl) name = imgEl.alt || imgEl.title;
                 if (!name) name = c.innerText.split("\n")[0];
                 
-                // Если ссыпа у самого контейнера
                 let finalLink = linkEl ? linkEl.href : c.getAttribute('href');
                  if (finalLink && !finalLink.startsWith('http')) {
                     finalLink = window.location.origin + finalLink;
@@ -456,34 +473,32 @@ async function parseShowcase(showcaseId, retryCount = 0) {
              }
           }
 
-          // 2. SimpleDOM Fallback (Если JSON не сработал)
-          // Ищем тупо по классам "card" или "item" и берем первую ссылку
           if (results.length === 0) {
               const simpleCards = document.querySelectorAll(
                 ".card, .offer-item, .item, .offer-card, .product-layout",
               );
-          simpleCards.forEach((c) => {
-            const linkEl = c.querySelector('a[href*="http"], a[href^="/"]');
-            const imgEl = c.querySelector("img");
-            let name = "";
+              simpleCards.forEach((c) => {
+                const linkEl = c.querySelector('a[href*="http"], a[href^="/"]');
+                const imgEl = c.querySelector("img");
+                let name = "";
 
-            if (imgEl) name = imgEl.alt || imgEl.title;
-            if (!name) name = c.innerText.split("\n")[0];
+                if (imgEl) name = imgEl.alt || imgEl.title;
+                if (!name) name = c.innerText.split("\n")[0];
 
-            if (linkEl && name && name.length > 2) {
-              results.push({
-                company_name: name.trim(),
-                link: linkEl.href,
-                image_url: imgEl ? imgEl.src : null,
-                placement_type: "main",
+                if (linkEl && name && name.length > 2) {
+                  results.push({
+                    company_name: name.trim(),
+                    link: linkEl.href,
+                    image_url: imgEl ? imgEl.src : null,
+                    placement_type: "main",
+                  });
+                }
               });
-            }
-          });
-          if (results.length > 0 && !method) {
-            method = "DOM (Simple Fallback)";
+              if (results.length > 0 && !method) {
+                method = "DOM (Simple Fallback)";
+              }
           }
         }
-        } // Closing the inner if (results.length === 0)
 
         return { results, method };
       }, customSelector);
@@ -496,43 +511,20 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       }
     }
 
-    console.log(`[Scraper] Парсинг завершен. Найдено карточек: ${data.length}`);
-
-    // Определяем метод парсинга
-    let parsingMethod = null;
-    // Проверяем, использовался ли fallback (данные были добавлены из fallback)
-    const usedFallback = fallbackData && fallbackData.results && fallbackData.results.length > 0;
-    
-    if (usedFallback && fallbackData.method) {
-      // Если использовался fallback
-      parsingMethod = fallbackData.method;
-    } else if (data.length > 0) {
-      // Если основной алгоритм дал результаты
-      if (customSelector && customSelector.trim()) {
-        parsingMethod = "DOM (Custom Selector)";
-      } else {
-        parsingMethod = "DOM (Cluster Match v4.0)";
-      }
+    // Определяем метод парсинга для записи в БД
+    let finalMethod = `v${version}`;
+    if (fallbackData && fallbackData.results && fallbackData.results.length > 0) {
+      finalMethod += ` (Fallback: ${fallbackData.method})`;
+    } else if (customSelector && customSelector.trim()) {
+      finalMethod += ` (Custom Selector)`;
+    } else {
+      finalMethod += ` (Cluster Match)`;
     }
 
-    // Обновляем запись с методом парсинга
-    if (parsingMethod) {
-      try {
-        db.prepare(
-          `UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`
-        ).run(parsingMethod, runId);
-      } catch (e) {
-        // Если колонка не существует, просто игнорируем ошибку
-        console.warn('[Scraper] Не удалось сохранить метод парсинга:', e.message);
-      }
-    }
+    db.prepare(`UPDATE parsing_runs SET parsing_method = ? WHERE id = ?`)
+      .run(finalMethod, runId);
 
-    // Отладка для Sravni
-    if (isSravni && data.length === 0) {
-      console.warn(
-        `[Scraper] ВНИМАНИЕ: Sravni.ru вернул 0 офферов! Возможно, контент загружается через iframe или требуется больше времени.`,
-      );
-    }
+    console.log(`[Scraper v${version}] Финальное количество офферов: ${data.length}`);
 
     const insertOffer = db.prepare(`
             INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)
@@ -554,29 +546,28 @@ async function parseShowcase(showcaseId, retryCount = 0) {
       );
     });
 
-    return { success: true, count: data.length };
+    return { success: true, count: data.length, version };
   } catch (error) {
     console.error(
       `Ошибка при парсинге ${showcase.url} (Attempt ${retryCount + 1}):`,
       error.message,
     );
 
-    // Авто-рестарт при "detached frame" или таймлауте (макс 2 попытки)
     if (
       retryCount < 1 &&
       (error.message.includes("detached") || error.message.includes("timeout"))
     ) {
       console.log(`[Scraper] Обнаружена критическая ошибка, пробую еще раз...`);
       await browser.close();
-      return parseShowcase(showcaseId, retryCount + 1);
+      return parseShowcase(showcaseId, version, retryCount + 1);
     }
 
     db.prepare(
       `
-            INSERT INTO parsing_runs (showcase_id, status, error_message)
-            VALUES (?, ?, ?)
+            INSERT INTO parsing_runs (showcase_id, status, error_message, parsing_method)
+            VALUES (?, ?, ?, ?)
         `,
-    ).run(showcaseId, "error", error.message);
+    ).run(showcaseId, "error", error.message, `v${version}`);
     return { success: false, error: error.message };
   } finally {
     if (browser) await browser.close();

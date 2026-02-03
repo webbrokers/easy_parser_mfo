@@ -70,6 +70,15 @@
                                     <p class="text-xs text-gray-500 mt-0.5 group-hover:text-blue-400">Запуск конкретных витрин</p>
                                 </div>
                             </a>
+                            <a href="#" onclick="openVersionModal(); return false;" class="group flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer" role="menuitem">
+                                <svg class="mr-3 h-5 w-5 text-gray-400 group-hover:text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                                </svg>
+                                <div>
+                                    <p class="font-medium">Выбрать версию парсинга</p>
+                                    <p class="text-xs text-gray-500 mt-0.5 group-hover:text-blue-400">Настройка модели извлечения</p>
+                                </div>
+                            </a>
                             <a href="#" onclick="seedTestData(); return false;" class="group flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors cursor-pointer" role="menuitem">
                                 <svg class="mr-3 h-5 w-5 text-gray-400 group-hover:text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"></path>
@@ -348,7 +357,48 @@
             </div>
         </div>
     </div>
+    <!-- Modal: Version Selection -->
+    <div id="versionModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-1/3 shadow-lg rounded-md bg-white">
+            <div class="flex justify-between items-center pb-3 border-b">
+                <h3 class="text-lg font-medium text-gray-900">Выбор версии парсинга</h3>
+                <button onclick="closeVersionModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="mt-4 space-y-4">
+                <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors border-blue-200 bg-blue-50">
+                    <input type="radio" name="parserVersion" value="2.0" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <div class="ml-3">
+                        <p class="text-sm font-bold text-gray-900">Версия 2.0 (Stable Match)</p>
+                        <p class="text-xs text-gray-500 mt-1">Рекомендуется. Глубокое сопоставление по алиасам, поиск в URL, улучшенная очистка мусора.</p>
+                    </div>
+                </label>
+
+                <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <input type="radio" name="parserVersion" value="1.0" class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <div class="ml-3">
+                        <p class="text-sm font-bold text-gray-900">Версия 1.0 (Legacy)</p>
+                        <p class="text-xs text-gray-500 mt-1">Классический алгоритм Cluster Match v4.0. Используйте, если в новой версии возникли проблемы.</p>
+                    </div>
+                </label>
+            </div>
+            
+            <div class="flex justify-end space-x-3 mt-6 pt-3 border-t">
+                <button onclick="closeVersionModal()" class="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-all">
+                    Отмена
+                </button>
+                <button onclick="runWithSelectedVersion()" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all font-semibold shadow-sm">
+                    Запустить для всех
+                </button>
+            </div>
+        </div>
+    </div>
 </main>
+
 
 <style>
 @keyframes hourglass {
@@ -404,6 +454,21 @@
     });
 
     // Modal Logic
+    function openVersionModal() {
+        document.getElementById('versionModal').classList.remove('hidden');
+        toggleDropdown();
+    }
+
+    function closeVersionModal() {
+        document.getElementById('versionModal').classList.add('hidden');
+    }
+
+    function runWithSelectedVersion() {
+        const version = document.querySelector('input[name="parserVersion"]:checked').value;
+        closeVersionModal();
+        runScraperAll(version);
+    }
+
     function openSelectiveParsingModal() {
         document.getElementById('selectiveParsingModal').classList.remove('hidden');
         toggleDropdown(); // Close menu
@@ -413,7 +478,7 @@
         document.getElementById('selectiveParsingModal').classList.add('hidden');
     }
 
-    async function runSelectedShowcases(specificIds = null) {
+    async function runSelectedShowcases(specificIds = null, version = '2.0') {
         let selectedIds = [];
         
         if (specificIds && Array.isArray(specificIds)) {
@@ -431,18 +496,18 @@
 
         const statusDiv = document.getElementById('parsingStatus');
         statusDiv.classList.remove('hidden');
-        statusDiv.innerHTML = 'Запуск парсинга...';
+        statusDiv.innerHTML = `Запуск парсинга (v${version})...`;
 
         try {
             const response = await fetch('/api/run-selected-showcases', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ showcase_ids: selectedIds })
+                body: JSON.stringify({ showcase_ids: selectedIds, version: version })
             });
             const data = await response.json();
             
             if (data.success) {
-                statusDiv.innerHTML = '✅ Парсинг запущен! Обновите страницу через минуту.';
+                statusDiv.innerHTML = `✅ Парсинг запущен (v${version})! Обновите страницу через минуту.`;
                 setTimeout(() => {
                     statusDiv.classList.add('hidden');
                     // Восстанавливаем иконки для всех запущенных витрин
@@ -615,7 +680,7 @@
         }
     }
 
-    async function runScraperAll() {
+    async function runScraperAll(version = '2.0') {
         const btn = document.getElementById('runAllBtn');
         const status = document.getElementById('parsingStatus');
         
@@ -625,24 +690,28 @@
         
         try {
             // 1. Получаем список витрин
-            status.innerText = 'Получение списка витрин...';
+            status.innerText = `Получение списка витрин (v${version})...`;
             const sitesRes = await fetch('/api/showcases/active');
             const sites = await sitesRes.json();
             
             // 2. Парсим по очереди
             for (let i = 0; i < sites.length; i++) {
                 const site = sites[i];
-                status.innerText = `Парсинг [${i+1}/${sites.length}]: ${site.name}...`;
+                status.innerText = `Парсинг [${i+1}/${sites.length}]: ${site.name} (v${version})...`;
                 
-                await fetch(`/api/run-showcase/${site.id}`, { method: 'POST' });
+                await fetch(`/api/run-showcase/${site.id}`, { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version: version })
+                });
             }
             
-            status.innerText = 'Парсинг успешно завершен!';
+            status.innerText = `Парсинг v${version} успешно завершен!`;
             status.classList.remove('text-blue-600');
             status.classList.add('text-green-600');
             
             setTimeout(() => {
-                alert('Все витрины обработаны!');
+                alert(`Все витрины обработаны (v${version})!`);
                 window.location.reload();
             }, 500);
             
