@@ -154,27 +154,39 @@ class NormalizationService {
      * Превращает любое название в эталонное имя бренда.
      */
     static normalize(name, url = '') {
-        if (!name) return 'Unknown';
+        if (!name || name === 'Offer' || name === 'Unknown') return 'Unknown';
 
         let cleanName = name.toLowerCase()
             .replace(/['"«»]/g, '')
             .replace(/(мфо|мкк|ооо|зао|пао|мфк)/gi, '')
             .trim();
 
-        // 1. Проверяем по справочнику алиасов
+        // Подготавливаем плоский список алиасов, отсортированный по длине (деск)
+        // Это КРИТИЧНО v2.4, чтобы "МегаДеньги" не превращались в "АДеньги" (substring match)
+        const allSortedAliases = [];
         for (const [brand, aliases] of Object.entries(BRAND_ALIASES)) {
-            if (aliases.some(a => cleanName.includes(a.toLowerCase()))) {
-                return brand;
+            aliases.forEach(a => {
+                allSortedAliases.push({ brand, alias: a.toLowerCase() });
+            });
+        }
+        allSortedAliases.sort((a, b) => b.alias.length - a.alias.length);
+
+        // 1. Проверяем по справочнику алиасов (сначала длинные)
+        for (const item of allSortedAliases) {
+            // Используем match с границами слов для коротких алиасов, или просто вхождение для длинных
+            if (item.alias.length > 3) {
+                if (cleanName.includes(item.alias)) return item.brand;
+            } else {
+                // Строгое совпадение для совсем коротких
+                if (cleanName === item.alias) return item.brand;
             }
         }
 
         // 2. Если в имени нет зацепок, проверяем URL
         if (url) {
             const lowUrl = url.toLowerCase();
-            for (const [brand, aliases] of Object.entries(BRAND_ALIASES)) {
-                if (aliases.some(a => lowUrl.includes(a.toLowerCase()))) {
-                    return brand;
-                }
+            for (const item of allSortedAliases) {
+                if (lowUrl.includes(item.alias)) return item.brand;
             }
         }
 

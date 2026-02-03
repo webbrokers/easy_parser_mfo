@@ -371,18 +371,18 @@
             
             <div class="mt-4 space-y-4">
                 <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors border-blue-200 bg-blue-50">
-                    <input type="radio" name="parserVersion" value="2.0" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <input type="radio" name="parserVersion" value="<%= VERSIONS.PARSER.STABLE %>" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
                     <div class="ml-3">
-                        <p class="text-sm font-bold text-gray-900">Версия 2.0 (Stable Match)</p>
-                        <p class="text-xs text-gray-500 mt-1">Рекомендуется. Глубокое сопоставление по алиасам, поиск в URL, улучшенная очистка мусора.</p>
+                        <p class="text-sm font-bold text-gray-900">Версия <%= VERSIONS.PARSER.STABLE %> (Stable Match)</p>
+                        <p class="text-xs text-gray-500 mt-1"><%= VERSIONS.DESCRIPTIONS.STABLE %></p>
                     </div>
                 </label>
 
                 <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
-                    <input type="radio" name="parserVersion" value="1.0" class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <input type="radio" name="parserVersion" value="<%= VERSIONS.PARSER.LEGACY %>" class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
                     <div class="ml-3">
-                        <p class="text-sm font-bold text-gray-900">Версия 1.0 (Legacy)</p>
-                        <p class="text-xs text-gray-500 mt-1">Классический алгоритм Cluster Match v4.0. Используйте, если в новой версии возникли проблемы.</p>
+                        <p class="text-sm font-bold text-gray-900">Версия <%= VERSIONS.PARSER.LEGACY %> (Legacy)</p>
+                        <p class="text-xs text-gray-500 mt-1"><%= VERSIONS.DESCRIPTIONS.LEGACY %></p>
                     </div>
                 </label>
             </div>
@@ -478,7 +478,7 @@
         document.getElementById('selectiveParsingModal').classList.add('hidden');
     }
 
-    async function runSelectedShowcases(specificIds = null, version = '2.0') {
+    async function runSelectedShowcases(specificIds = null, version = '<%= VERSIONS.PARSER.STABLE %>') {
         let selectedIds = [];
         
         if (specificIds && Array.isArray(specificIds)) {
@@ -680,7 +680,7 @@
         }
     }
 
-    async function runScraperAll(version = '2.0') {
+    async function runScraperAll(version = '<%= VERSIONS.PARSER.STABLE %>') {
         const btn = document.getElementById('runAllBtn');
         const status = document.getElementById('parsingStatus');
         

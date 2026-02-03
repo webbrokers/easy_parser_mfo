@@ -4,6 +4,7 @@ const { DateTime } = require("luxon");
 const path = require("path");
 const fs = require("fs");
 const { NormalizationService } = require("../services/normalization");
+const VERSIONS = require("../config/versions");
 
 /**
  * Вспомогательная функция для определения бренда через переход по ссылке (Redirect Resolve)
@@ -68,7 +69,7 @@ async function resolveBrandFromRedirect(browser, url) {
   }
 }
 
-async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
+async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retryCount = 0) {
   const showcase = db
     .prepare("SELECT * FROM showcases WHERE id = ?")
     .get(showcaseId);
@@ -211,11 +212,12 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
     const brandAliases = NormalizationService.BRAND_ALIASES;
     const allKnownAliases = Object.values(brandAliases).flat().map(a => a.toLowerCase());
 
-    // 3. Логика парсинга офферов (Cluster Match v5.1)
+    // 3. Логика парсинга офферов (Cluster Match v5.3)
     const customSelector = showcase.custom_selector || '';
     const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
+      const filterPhrases = ["все займы", "новые", "популярные", "лучшие", "с плохой ки", "без процентов", "на карту", "без отказа"];
       const finTerms = ["сумма", "срок", "ставка", "процент", "дней", "руб"];
       
       const affiliateDomains = [
@@ -225,6 +227,9 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
 
       function isMoney(text) {
         const low = (text || "").toLowerCase().trim();
+        // v2.3 Исключаем общие фразы фильтров
+        if (filterPhrases.includes(low)) return false;
+        
         return keywords.some((k) => low.includes(k)) || (low.length > 2 && low.length < 25 && (low.includes("одобр") || low.includes("выбр") || low.includes("подать")));
       }
 
@@ -241,14 +246,12 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
             "сумма", "срок", "ставка", "отзыв", "подробнее", "получить", "заявка", "logo", 
             "выплата", "минуту", "руб", "дней", "процент", "без отказа", "онлайн", 
             "на карту", "кредит", "займ", "взять", "оформить", "рублей", "выдача",
-            "лицензия", "вход", "кабинет", "мин", "условие"
+            "лицензия", "вход", "кабинет", "мин", "условие", "рейтинг", "фильтр"
         ];
         
-        // КРИТИЧНО v2.1: Используем более точное сопоставление для длинных стоп-слов, 
-        // чтобы не отсеивать "Займер" (из-за "Займ")
+        // КРИТИЧНО v2.1: Используем более точное сопоставление для длинных стоп-слов
         if (stopWords.some(sw => {
             if (low === sw) return true;
-            // Если стоп-слово короткое (займ), проверяем только точное совпадение или пробел
             if (sw === "займ" || sw === "сумма" || sw === "срок" || sw === "ставка") {
                 return low === sw || low.includes(" " + sw) || low.includes(sw + " ");
             }
@@ -256,15 +259,17 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
         })) return true;
 
         if (low.startsWith("до ") || low.startsWith("от ")) return true;
-        if (/^[a-z]\s[a-f0-9]{10,}/.test(low)) return true;
-        if (low.includes("logo") && /[a-z0-9]{5,}/.test(low)) return true;
         return false;
       }
 
+      // 0. Анализ паттернов ссылок
+      const currentHost = window.location.hostname;
       const allLinks = Array.from(document.querySelectorAll('a[href*="http"]'))
         .map((a) => {
           try {
             const url = new URL(a.href);
+            // v2.3 Игнорируем ссылки на текущий хост при подсчете топ-домена
+            if (url.hostname === currentHost) return null;
             return { hostname: url.hostname, href: a.href };
           } catch (e) { return null; }
         })
@@ -300,23 +305,29 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
               if (!curr || curr === document.body) break;
 
               const className = (curr.className || "").toString().toLowerCase();
+              const idName = (curr.id || "").toString().toLowerCase();
+              
+              // v2.3 ЧЕРНЫЙ СПИСОК: Исключаем навигационные блоки
+              if (/(nav|menu|filter|tags|breadcrumb|footer|header|sidebar)/.test(className + idName)) {
+                  card = null;
+                  break; 
+              }
+
               const rect = curr.getBoundingClientRect();
               const innerText = (curr.innerText || "").toLowerCase();
 
               const hasImg = curr.querySelector("img");
-              
-              // КРИТИЧНО v2.1: Проверяем по ВСЕМ алиасам для нахождения контейнера
               const hasKnownBrand = allAliases.some(a => innerText.includes(a));
-              
               const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; 
               const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
-              const isSignificant = rect.height > 40 && rect.width > 80;
+              const isSignificant = rect.height > 60 && rect.width > 120; // Немного увеличили порог
 
               const cardLinks = Array.from(curr.querySelectorAll('a[href*="http"]'));
               const hasAffLink = cardLinks.some(al => {
                   try {
                       const host = new URL(al.href).hostname;
-                      return (topDomain && host === topDomain) || affiliateDomains.some(ad => host.includes(ad));
+                      if (host === currentHost) return false; // Внутренние ссылки не партнерки
+                      return (topDomain && host === topDomain) || affiliateDomains.some(ad => host.includes(ad)) || al.href.includes('/go/') || al.href.includes('/click/');
                   } catch(e) { return false; }
               });
 
@@ -420,29 +431,36 @@ async function parseShowcase(showcaseId, version = "2.0", retryCount = 0) {
               const allCardLinks = Array.from(card.querySelectorAll('a[href^="http"]'));
               const validAffLink = allCardLinks.find(al => {
                   try {
-                      const host = new URL(al.href).hostname;
-                      return host !== window.location.hostname && (topDomain && host === topDomain || affiliateDomains.some(ad => host.includes(ad)));
+                      const url = new URL(al.href);
+                      const host = url.hostname;
+                      // v2.4 Игнорируем внутренние ссылки
+                      if (host === currentHost) return false;
+                      return (topDomain && host === topDomain) || 
+                             affiliateDomains.some(ad => host.includes(ad)) || 
+                             al.href.includes('/go/') || 
+                             al.href.includes('/click/');
                   } catch(e) { return false; }
               });
               if (validAffLink) href = validAffLink.href;
           }
 
-          if (href && href.startsWith('http')) {
-              results.push({
-                company_name: name.substring(0, 40).trim(),
-                link: href,
-                image_url: img?.src || null,
-                placement_type: "main",
-              });
-          }
+          // v2.4 Сохраняем все найденные карточки для точного позиционирования
+          results.push({
+            company_name: name.substring(0, 40).trim(),
+            link: href || "#unknown",
+            image_url: img?.src || null,
+            placement_type: "main",
+          });
         }
       });
 
+      // v2.4 Умная дедупликация: удаляем только если совпадает и ссылка и имя
       const final = [];
-      const seenLinks = new Set();
+      const seenItems = new Set();
       results.forEach((item) => {
-        if (!seenLinks.has(item.link)) {
-          seenLinks.add(item.link);
+        const key = `${item.link}|${item.company_name}`;
+        if (!seenItems.has(key)) {
+          seenItems.add(key);
           final.push(item);
         }
       });

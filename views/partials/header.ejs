@@ -32,6 +32,12 @@
                         <a href="/settings" class="<%= (typeof title !== 'undefined' && title === 'Настройки') ? activeClass : inactiveClass %>">Настройки</a>
                     </div>
                 </div>
+                <div class="flex items-center space-x-4">
+                    <div class="hidden md:flex flex-col items-end">
+                        <span class="text-[10px] uppercase tracking-widest text-gray-400 font-bold">System Version</span>
+                        <span class="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">v<%= VERSIONS.SYSTEM %></span>
+                    </div>
+                </div>
             </div>
         </div>
     </nav>

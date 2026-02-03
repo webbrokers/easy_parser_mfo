@@ -4,11 +4,13 @@ const path = require('path');
 const AnalyticsService = require('./services/analytics');
 const { parseShowcase } = require('./scraper/index');
 const db = require('./db/schema');
+const VERSIONS = require('./config/versions');
 
 const cron = require('node-cron');
 const { dailyTask } = require('./scheduler');
 
 const app = express();
+app.locals.VERSIONS = VERSIONS;
 const PORT = process.env.PORT || 3000;
 
 // Принудительно слушаем на всех интерфейсах для облака
@@ -206,7 +208,7 @@ app.post('/api/run-selected-showcases', async (req, res) => {
         
         // Запускаем асинхронно, не блокируя ответ, но параллельно с лимитом
         (async () => {
-            const { version = '2.0' } = req.body;
+            const { version = VERSIONS.PARSER.STABLE } = req.body;
             const { asyncPool } = require('./utils/async-pool');
             const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
             const showcases = db.prepare(`SELECT * FROM showcases WHERE id IN (${showcase_ids.join(',')})`).all();
@@ -368,7 +370,7 @@ app.get('/api/showcases/active', (req, res) => {
 // API для запуска парсинга одной витрины
 app.post('/api/run-showcase/:id', async (req, res) => {
     try {
-        const { version = '2.0' } = req.body;
+        const { version = VERSIONS.PARSER.STABLE } = req.body;
         const result = await parseShowcase(req.params.id, version);
         res.json({ success: true, ...result });
     } catch (e) {
@@ -402,7 +404,7 @@ app.post('/api/showcase/:id/update', (req, res) => {
 
 // API для запуска парсинга
 app.post('/api/run-all', async (req, res) => {
-    const { version = '2.0' } = req.body;
+    const { version = VERSIONS.PARSER.STABLE } = req.body;
     const sites = db.prepare('SELECT id FROM showcases WHERE is_active = 1').all();
     const { asyncPool } = require('./utils/async-pool');
     const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
