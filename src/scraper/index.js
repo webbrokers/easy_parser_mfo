@@ -316,6 +316,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
               const rect = curr.getBoundingClientRect();
               const innerText = (curr.innerText || "").toLowerCase();
               const hasImg = curr.querySelector("img");
+              const hasKnownBrand = allAliases.some(a => innerText.includes(a));
               const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; 
               const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
               const isSignificant = rect.height > 60 && rect.width > 120 && rect.height < (window.innerHeight * 0.85);

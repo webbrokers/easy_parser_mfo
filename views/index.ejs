@@ -424,6 +424,23 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
+    // Utility: Async Pool for frontend
+    async function asyncPool(concurrency, array, iteratorFn) {
+        const ret = [];
+        const executing = new Set();
+        for (const item of array) {
+            const p = Promise.resolve().then(() => iteratorFn(item, array));
+            ret.push(p);
+            executing.add(p);
+            const clean = () => executing.delete(p);
+            p.then(clean).catch(clean);
+            if (executing.size >= concurrency) {
+                await Promise.race(executing);
+            }
+        }
+        return Promise.all(ret);
+    }
+
     async function toggleShowcase(id, isActive) {
         try {
             await fetch(`/api/showcase/${id}/toggle`, {
@@ -694,19 +711,29 @@
             const sitesRes = await fetch('/api/showcases/active');
             const sites = await sitesRes.json();
             
-            // 2. Парсим по очереди
-            for (let i = 0; i < sites.length; i++) {
-                const site = sites[i];
-                status.innerText = `Парсинг [${i+1}/${sites.length}]: ${site.name} (v${version})...`;
-                
-                await fetch(`/api/run-showcase/${site.id}`, { 
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ version: version })
-                });
-            }
+            // 2. Парсим параллельно с лимитом (v1.4)
+            const concurrency = <%= app.locals.CONCURRENCY %>;
+            console.log(`[UI] Запуск параллельного парсинга: ${concurrency} потока`);
             
-            status.innerText = `Парсинг v${version} успешно завершен!`;
+            let completed = 0;
+            await asyncPool(concurrency, sites, async (site) => {
+                // Мы не можем точно предсказать порядок завершения, поэтому просто инкрементируем счетчик
+                // Но для статуса [X/Y] будем выводить имя текущей витрины в этом потоке
+                const currentIdx = ++completed;
+                status.innerText = `Парсинг в ${concurrency} потока [${currentIdx}/${sites.length}]: ${site.name} (v${version})...`;
+                
+                try {
+                    await fetch(`/api/run-showcase/${site.id}`, { 
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ version: version })
+                    });
+                } catch (e) {
+                    console.error(`Ошибка парсинга ${site.name}:`, e);
+                }
+            });
+            
+            status.innerText = `Парсинг v${version} успешно завершен! (Обработано ${sites.length} витрин)`;
             status.classList.remove('text-blue-600');
             status.classList.add('text-green-600');
             

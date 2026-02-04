@@ -11,6 +11,7 @@ const { dailyTask } = require('./scheduler');
 
 const app = express();
 app.locals.VERSIONS = VERSIONS;
+app.locals.CONCURRENCY = parseInt(process.env.MAX_CONCURRENCY) || 2;
 const PORT = process.env.PORT || 3000;
 
 // Принудительно слушаем на всех интерфейсах для облака
@@ -210,7 +211,7 @@ app.post('/api/run-selected-showcases', async (req, res) => {
         (async () => {
             const { version = VERSIONS.PARSER.STABLE } = req.body;
             const { asyncPool } = require('./utils/async-pool');
-            const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
+            const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 2;
             const showcases = db.prepare(`SELECT * FROM showcases WHERE id IN (${showcase_ids.join(',')})`).all();
             
             console.log(`[API] Запуск параллельного парсинга (лимит ${concurrency} потока)...`);

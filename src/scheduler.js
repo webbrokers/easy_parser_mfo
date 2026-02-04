@@ -9,7 +9,7 @@ async function dailyTask() {
     let report = `<b>📊 Ежедневный отчет парсинга</b>\nДата: ${new Date().toLocaleDateString()}\n\n`;
     
     const { asyncPool } = require('./utils/async-pool');
-    const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 1;
+    const concurrency = parseInt(process.env.MAX_CONCURRENCY) || 2;
     
     await asyncPool(concurrency, sites, async (site) => {
         console.log(`[Scheduler] Parsing ${site.name}...`);
