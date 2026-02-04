@@ -301,104 +301,83 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
              card = el;
         } else {
             let curr = el;
-            for (let i = 0; i < 12; i++) {
-              if (!curr || curr === document.body) break;
+            let lastValid = null;
+            // Ищем САМЫЙ ВНЕШНИЙ контейнер, но не выше разумного (v2.6)
+            for (let i = 0; i < 10; i++) {
+              if (!curr || curr === document.body || curr.tagName === 'HTML') break;
 
               const className = (curr.className || "").toString().toLowerCase();
               const idName = (curr.id || "").toString().toLowerCase();
               
-              // v2.3 ЧЕРНЫЙ СПИСОК: Исключаем навигационные блоки
               if (/(nav|menu|filter|tags|breadcrumb|footer|header|sidebar)/.test(className + idName)) {
-                  card = null;
                   break; 
               }
 
               const rect = curr.getBoundingClientRect();
               const innerText = (curr.innerText || "").toLowerCase();
-
               const hasImg = curr.querySelector("img");
-              const hasKnownBrand = allAliases.some(a => innerText.includes(a));
               const hasFinTerms = finTerms.filter((t) => innerText.includes(t)).length >= 1; 
               const isCardClass = /card|offer|item|row|tile|product|block/.test(className);
-              const isSignificant = rect.height > 60 && rect.width > 120; // Немного увеличили порог
+              const isSignificant = rect.height > 60 && rect.width > 120 && rect.height < (window.innerHeight * 0.85);
 
               const cardLinks = Array.from(curr.querySelectorAll('a[href*="http"]'));
               const hasAffLink = cardLinks.some(al => {
                   try {
-                      const host = new URL(al.href).hostname;
-                      if (host === currentHost) return false; // Внутренние ссылки не партнерки
+                      const url = new URL(al.href);
+                      const host = url.hostname;
+                      if (host === currentHost) return false;
                       return (topDomain && host === topDomain) || affiliateDomains.some(ad => host.includes(ad)) || al.href.includes('/go/') || al.href.includes('/click/');
                   } catch(e) { return false; }
               });
 
               let factors = 0;
               if (isCardClass) factors++;
-              if (hasKnownBrand) factors += 2;
+              if (hasKnownBrand) factors += 2; // hasKnownBrand берется из замыкания
               if (hasFinTerms) factors++;
               if (hasImg) factors++;
               if (hasAffLink) factors += 2;
 
               if (factors >= 2 && isSignificant) { 
-                card = curr; // Нашли карточку, но не прерываемся, ищем самый внешний контейнер (v2.5)
+                lastValid = curr;
               }
               curr = curr.parentElement;
             }
+            card = lastValid;
         }
 
         if (card && !processedContainers.has(card)) {
           processedContainers.add(card);
 
           const imgs = Array.from(card.querySelectorAll("img"));
-          const img = imgs.find(i => i.width > 20) || imgs[0];
+          const img = imgs.find(i => i.width > 30) || imgs[0];
           let name = "";
 
-          // Извлечение имени v2.1 (Новая иерархия)
-          
-          // 1. ПРИОРИТЕТ: Специальные классы (как на OdobrenZaym)
+          // [Иерархия извлечения имени v2.1-v2.5 сохраняется]
           const priorityNames = Array.from(card.querySelectorAll('.offer__name, .offer-name, .name, .title, .brand-name'));
           for (const pn of priorityNames) {
               const val = pn.innerText.trim();
               if (val && !isTrashName(val)) { name = val; break; }
           }
 
-          // 2. Технические атрибуты (как на Zyamer: onclick="... {offer: 'Lime'} ...")
           if (!name) {
               const elementsWithTechnicalData = Array.from(card.querySelectorAll('[onclick], [data-offer], [data-name], [data-brand]'));
               for (const te of elementsWithTechnicalData) {
-                  const technicalString = (te.getAttribute('onclick') || '') + ' ' + 
-                                       (te.getAttribute('data-offer') || '') + ' ' +
-                                       (te.getAttribute('data-name') || '') + ' ' + 
-                                       (te.getAttribute('data-brand') || '');
-                  
-                  // Ищем упоминание любого алиаса в технической строке
+                  const technicalString = (te.getAttribute('onclick') || '') + ' ' + (te.getAttribute('data-offer') || '') + ' ' + (te.getAttribute('data-name') || '') + ' ' + (te.getAttribute('data-brand') || '');
                   const foundAlias = allAliases.find(a => a.length > 2 && technicalString.toLowerCase().includes(a));
                   if (foundAlias) {
-                      // Сопоставляем алиас с основным именем бренда через aliasesMap
                       for (const [brand, aliases] of Object.entries(aliasesMap)) {
-                          if (aliases.some(as => as.toLowerCase() === foundAlias)) {
-                              name = brand;
-                              break;
-                          }
+                          if (aliases.some(as => as.toLowerCase() === foundAlias)) { name = brand; break; }
                       }
                       if (name) break;
                   }
               }
           }
 
-          // 3. Из имени файла картинки
           if (!name && img && img.src) {
-              let srcName = img.src.split('/').pop().split('.')[0]
-                  .replace(/[-_]/g, ' ')
-                  .replace(/[0-9]+x[0-9]+/g, '') 
-                  .replace(/[0-9]{4}/g, '')      
-                  .trim();
-              
-              if (srcName && srcName.length > 2 && !isTrashName(srcName)) {
-                  name = srcName;
-              }
+              let srcName = img.src.split('/').pop().split('.')[0].replace(/[-_]/g, ' ').replace(/[0-9]+x[0-9]+/g, '').replace(/[0-9]{4}/g, '').trim();
+              if (srcName && srcName.length > 2 && !isTrashName(srcName)) name = srcName;
           }
 
-          // 4. Альт
           if (!name && img) name = img.alt || img.title || "";
           
           if (!name || isTrashName(name)) {
@@ -409,16 +388,10 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
             }
           }
 
-          // 5. Глубокое сопоставление v2.0+ (Уже было, но обновим для надежности)
           if (scraperVersion >= "2.0" && (!name || isTrashName(name) || name === "Offer")) {
-              const html = card.outerHTML.toLowerCase();
               const text = card.innerText.toLowerCase();
-              
               for (const [brand, aliases] of Object.entries(aliasesMap)) {
-                  if (aliases.some(a => text.includes(a.toLowerCase()) || html.includes(`/${a.toLowerCase()}/`) || html.includes(`_${a.toLowerCase()}_`))) {
-                      name = brand;
-                      break;
-                  }
+                  if (aliases.some(a => text.includes(a.toLowerCase()))) { name = brand; break; }
               }
           }
 
@@ -432,18 +405,13 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
                   try {
                       const url = new URL(al.href);
                       const host = url.hostname;
-                      // v2.4 Игнорируем внутренние ссылки
                       if (host === currentHost) return false;
-                      return (topDomain && host === topDomain) || 
-                             affiliateDomains.some(ad => host.includes(ad)) || 
-                             al.href.includes('/go/') || 
-                             al.href.includes('/click/');
+                      return (topDomain && host === topDomain) || affiliateDomains.some(ad => host.includes(ad)) || al.href.includes('/go/') || al.href.includes('/click/');
                   } catch(e) { return false; }
               });
               if (validAffLink) href = validAffLink.href;
           }
 
-          // v2.4 Сохраняем все найденные карточки для точного позиционирования
           results.push({
             company_name: name.substring(0, 40).trim(),
             link: href || "#unknown",
@@ -453,21 +421,19 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         }
       });
 
-      // v2.5 Умная дедупликация: 
-      // Приоритет отдаем карточкам с реальными ссылками
+      // v2.6 Мягкая дедупликация: 
+      // Оставляем всё, кроме ПОЛНЫХ дублей (имя + ссылка одинаковые)
+      // Если у компании есть нормальная ссылка и есть вариант с #unknown — убираем вариант с #unknown
       const final = [];
       results.forEach((item) => {
-        // Ищем, нет ли уже такого оффера в final (по имени, ссылке или картинке)
         const duplicateIndex = final.findIndex(f => 
-            (f.company_name === item.company_name && f.company_name !== 'Offer') || 
-            (f.link === item.link && item.link !== '#unknown') ||
-            (f.image_url && item.image_url && f.image_url === item.image_url)
+            f.company_name === item.company_name && (f.link === item.link || (f.link === '#unknown' || item.link === '#unknown'))
         );
 
         if (duplicateIndex === -1) {
             final.push(item);
         } else {
-            // Если нашли дубль, заменяем его текущим, ТОЛЬКО если у текущего есть ссылка, а у старого — нет
+            // Если нашли дубль по имени и один из них без ссылки — берем тот, что со ссылкой
             if (item.link !== '#unknown' && final[duplicateIndex].link === '#unknown') {
                 final[duplicateIndex] = item;
             }
