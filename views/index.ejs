@@ -712,7 +712,7 @@
             const sites = await sitesRes.json();
             
             // 2. Парсим параллельно с лимитом (v1.4)
-            const concurrency = <%= app.locals.CONCURRENCY %>;
+            const concurrency = <%= CONCURRENCY %>;
             console.log(`[UI] Запуск параллельного парсинга: ${concurrency} потока`);
             
             let completed = 0;
