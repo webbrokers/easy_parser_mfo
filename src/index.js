@@ -4,6 +4,7 @@ const path = require('path');
 const AnalyticsService = require('./services/analytics');
 const { parseShowcase } = require('./scraper/index');
 const db = require('./db/schema');
+const { NormalizationService } = require('./services/normalization');
 const VERSIONS = require('./config/versions');
 
 const cron = require('node-cron');
@@ -170,7 +171,7 @@ app.get('/api/top-offers/:period', async (req, res) => {
                 dateFilter = "AND pr.run_date >= datetime('now', '-7 days')";
         }
         
-        const { NormalizationService } = require('./services/normalization');
+
         const rawData = db.prepare(`
             SELECT os.company_name, os.position, os.link
             FROM offer_stats os
