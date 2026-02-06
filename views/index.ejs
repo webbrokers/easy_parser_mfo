@@ -370,8 +370,16 @@
             </div>
             
             <div class="mt-4 space-y-4">
-                <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors border-blue-200 bg-blue-50">
-                    <input type="radio" name="parserVersion" value="<%= VERSIONS.PARSER.STABLE %>" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors border-blue-600 bg-blue-50 ring-2 ring-blue-100 mb-3">
+                    <input type="radio" name="parserVersion" value="<%= VERSIONS.PARSER.STABLE_V3 %>" checked class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
+                    <div class="ml-3">
+                        <p class="text-sm font-bold text-gray-900">Версия <%= VERSIONS.PARSER.STABLE_V3 %> (Pattern Match)</p>
+                        <p class="text-xs text-blue-700 mt-1 font-medium italic">🔥 Рекомендуемая: <%= VERSIONS.DESCRIPTIONS.STABLE_V3 %></p>
+                    </div>
+                </label>
+
+                <label class="flex items-start p-4 border rounded-lg cursor-pointer hover:bg-blue-50 transition-colors border-gray-200">
+                    <input type="radio" name="parserVersion" value="<%= VERSIONS.PARSER.STABLE %>" class="mt-1 h-4 w-4 text-blue-600 border-gray-300">
                     <div class="ml-3">
                         <p class="text-sm font-bold text-gray-900">Версия <%= VERSIONS.PARSER.STABLE %> (Stable Match)</p>
                         <p class="text-xs text-gray-500 mt-1"><%= VERSIONS.DESCRIPTIONS.STABLE %></p>

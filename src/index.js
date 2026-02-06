@@ -443,6 +443,31 @@ app.post('/api/showcases/delete/:id', (req, res) => {
     }
 });
 
+// API для получения неизвестных брендов
+app.get('/api/unknown-brands', (req, res) => {
+    try {
+        const rows = db.prepare(`
+            SELECT ub.*, s.name as showcase_name, s.url as showcase_url
+            FROM unknown_brands ub
+            JOIN showcases s ON ub.showcase_id = s.id
+            ORDER BY ub.captured_at DESC
+        `).all();
+        res.json(rows);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Удаление записи о неизвестном бренде
+app.post('/api/unknown-brands/delete/:id', (req, res) => {
+    try {
+        db.prepare('DELETE FROM unknown_brands WHERE id = ?').run(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Запуск сервера
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {

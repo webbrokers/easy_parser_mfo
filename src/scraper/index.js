@@ -3,8 +3,9 @@ const db = require("../db/schema");
 const { DateTime } = require("luxon");
 const path = require("path");
 const fs = require("fs");
-const { NormalizationService } = require("../services/normalization");
+const { NormalizationService, BRAND_ALIASES } = require("../services/normalization");
 const VERSIONS = require("../config/versions");
+const { parseV3 } = require("./v3_logic");
 
 /**
  * Вспомогательная функция для определения бренда через переход по ссылке (Redirect Resolve)
@@ -444,11 +445,37 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
       return final;
     }, brandNames, brandAliases, allKnownAliases, customSelector, version);
 
-    console.log(`[Scraper v${version}] Парсинг завершен. Найдено карточек: ${data.length}`);
+    // --- ОБРАБОТКА РЕЗУЛЬТАТОВ V3.0 И НЕИЗВЕСТНЫХ БРЕНДОВ ---
+    let finalData = data;
+    if (version === VERSIONS.PARSER.STABLE_V3) {
+        console.log(`[Scraper] Используется логика v3.0...`);
+        finalData = await parseV3(page, browser, {
+            brandNames,
+            brandAliases,
+            allAliasesMap: BRAND_ALIASES,
+            version
+        });
 
-    // --- DOUBLE LOGIC: FALLBACK V2 (Отрабатывает только если 0 офферов) ---
+        // Записываем неизвестные бренды в БД
+        for (const item of finalData) {
+            if (item.company_name === "Unknown" || !item.is_recognized) {
+                try {
+                    db.prepare(`
+                        INSERT INTO unknown_brands (showcase_id, run_id, raw_name, link, position)
+                        VALUES (?, ?, ?, ?, ?)
+                    `).run(showcaseId, runId, item.company_name, item.link, item.position);
+                } catch (e) {
+                    console.error(`[DB] Ошибка записи неизвестного бренда:`, e.message);
+                }
+            }
+        }
+    }
+
+    console.log(`[Scraper v${version}] Парсинг завершен. Итого офферов: ${finalData.length}`);
+
+    // --- DOUBLE LOGIC: FALLBACK V2 ---
     let fallbackData = null;
-    if (data.length === 0) {
+    if (finalData.length === 0) {
       console.log(
         `[Scraper] Основной алгоритм v${version} (0 офферов). Запускаю Fallback (JSON + SimpleDOM)...`,
       );
@@ -618,26 +645,22 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         }
     }
 
-    console.log(`[Scraper v${version}] Финальное количество офферов: ${data.length}`);
+    // Сохраняем в БД
+    const finalOfFinal = fallbackData || finalData;
+    const insertStat = db.prepare(`
+        INSERT INTO offer_stats (run_id, company_name, link, image_url, placement_type, position)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `);
 
-    const insertOffer = db.prepare(`
-            INSERT INTO offer_stats (run_id, position, company_name, link, image_url, placement_type)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
-    data.forEach((offer, index) => {
-      const normalizedName = NormalizationService.normalize(
-        offer.company_name,
-        offer.link,
-      );
-      insertOffer.run(
-        runId,
-        index + 1,
-        normalizedName,
-        offer.link,
-        offer.image_url,
-        offer.placement_type,
-      );
+    finalOfFinal.forEach((item, index) => {
+        insertStat.run(
+            runId,
+            item.company_name,
+            item.link,
+            item.image_url,
+            item.placement_type || 'main',
+            item.position || (index + 1)
+        );
     });
 
     return { success: true, count: data.length, version };

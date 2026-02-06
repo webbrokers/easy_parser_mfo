@@ -87,6 +87,21 @@ db.prepare(`
     )
 `).run();
 
+// Таблица для сбора нераспознанных брендов (v3.0)
+db.prepare(`
+    CREATE TABLE IF NOT EXISTS unknown_brands (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        showcase_id INTEGER NOT NULL,
+        run_id INTEGER NOT NULL,
+        raw_name TEXT,
+        link TEXT,
+        position INTEGER,
+        captured_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (showcase_id) REFERENCES showcases(id),
+        FOREIGN KEY (run_id) REFERENCES parsing_runs(id)
+    )
+`).run();
+
 // Наполнение начальными данными, если пусто
 const count = db.prepare('SELECT count(*) as count FROM showcases').get().count;
 if (count === 0) {
