@@ -6,6 +6,7 @@ const fs = require("fs");
 const { NormalizationService, BRAND_ALIASES } = require("../services/normalization");
 const VERSIONS = require("../config/versions");
 const { parseV3 } = require("./v3_logic");
+const SecondStageStrategy = require("./strategies/second_stage");
 
 /**
  * Вспомогательная функция для определения бренда через переход по ссылке (Redirect Resolve)
@@ -647,7 +648,21 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
     }
 
     // Сохраняем в БД
-    const finalOfFinal = fallbackData || finalData;
+    let finalOfFinal = fallbackData || finalData;
+
+    // --- SECOND STAGE: REFINEMENT (v2.7) ---
+    // Запускаем ТОЛЬКО если выбрана версия с поддержкой Second Stage
+    if (version === VERSIONS.PARSER.STABLE_V3_SS) {
+        console.log(`[Scraper] Запуск Second Stage (выбрана версия ${version})...`);
+        try {
+            finalOfFinal = SecondStageStrategy.process(finalOfFinal);
+        } catch(e) {
+            console.error(`[Scraper] Ошибка во время Second Stage:`, e.message);
+        }
+    } else {
+        console.log(`[Scraper] Second Stage пропущен (версия ${version}).`);
+    }
+
     const insertStat = db.prepare(`
         INSERT INTO offer_stats (run_id, company_name, link, image_url, placement_type, position)
         VALUES (?, ?, ?, ?, ?, ?)

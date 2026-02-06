@@ -60,7 +60,11 @@ app.get('/', async (req, res) => {
             totalShowcases: showcases.length,
             activeShowcases: showcases.filter(s => s.is_active).length,
             // Считаем уникальные МФО, а не просто количество записей
-            totalOffers: db.prepare('SELECT count(DISTINCT company_name) as count FROM offer_stats').get().count,
+            totalOffers: (() => {
+                const allStats = db.prepare('SELECT company_name, link FROM offer_stats').all();
+                const unique = new Set(allStats.map(s => NormalizationService.normalize(s.company_name, s.link)));
+                return unique.size;
+            })(),
             runsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now')").get().count,
             errorsToday: db.prepare("SELECT count(*) as count FROM parsing_runs WHERE date(run_date) = date('now') AND status = 'error'").get().count
         };
