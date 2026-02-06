@@ -5,63 +5,100 @@
 </head>
 <body class="bg-gray-50 text-manus-text font-inter">
     <div class="max-w-7xl mx-auto px-4 py-8">
-        <header class="mb-8">
-            <h1 class="text-3xl font-bold mb-2">Все офферы</h1>
-            <p class="text-gray-500">Сводная аналитика по всем компаниям во всех витринах</p>
+        <header class="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+            <div>
+                <h1 class="text-3xl font-bold mb-2">Все офферы</h1>
+                <p class="text-gray-500">Сводная аналитика по всем компаниям во всех витринах</p>
+            </div>
+            
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                    <div class="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Уникальных</div>
+                    <div class="text-2xl font-bold text-manus-text"><%= offers.length %></div>
+                </div>
+                <a href="/unknown-brands" class="block bg-white p-4 rounded-xl border border-gray-100 shadow-sm border-l-4 border-l-red-500 hover:shadow-md transition-shadow cursor-pointer group">
+                    <div class="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1 group-hover:text-red-500 transition-colors">Неизвестных</div>
+                    <div class="text-2xl font-bold text-red-600"><%= stats.unknownCount %></div>
+                </a>
+                <div class="bg-white p-4 rounded-xl border border-gray-100 shadow-sm hidden sm:block">
+                    <div class="text-[10px] uppercase tracking-wider text-gray-400 font-bold mb-1">Активных витрин</div>
+                    <div class="text-2xl font-bold text-blue-600"><%= stats.totalShowcases %></div>
+                </div>
+            </div>
         </header>
 
-        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <table class="w-full text-left">
-                <thead class="bg-gray-50 border-b border-gray-100">
-                    <tr>
-                        <th class="px-6 py-4 font-semibold text-sm">Компания</th>
-                        <th class="px-6 py-4 font-semibold text-sm">Средняя позиция</th>
-                        <th class="px-6 py-4 font-semibold text-sm">Охват витрин</th>
-                        <th class="px-6 py-4 font-semibold text-sm">Частота (%)</th>
-                        <th class="px-6 py-4 font-semibold text-sm">Статус</th>
+        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-visible">
+            <table class="w-full text-left border-collapse" id="offersTable">
+                <thead class="sticky top-16 bg-gray-50/95 backdrop-blur-sm shadow-sm z-20">
+                    <tr class="border-b border-gray-100">
+                        <th class="px-4 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-400 text-center w-12">№</th>
+                        <th class="px-6 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-500 cursor-pointer hover:text-manus-accent transition-colors group" onclick="sortTable(1)">
+                            <div class="flex items-center">
+                                Компания <span class="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↕</span>
+                            </div>
+                        </th>
+                        <th class="px-6 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-500 cursor-pointer hover:text-manus-accent transition-colors group" onclick="sortTable(2, 'float')">
+                            <div class="flex items-center">
+                                Средняя позиция <span class="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↕</span>
+                            </div>
+                        </th>
+                        <th class="px-6 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-500 cursor-pointer hover:text-manus-accent transition-colors group" onclick="sortTable(3, 'int')">
+                            <div class="flex items-center">
+                                Охват витрин <span class="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↕</span>
+                            </div>
+                        </th>
+                        <th class="px-6 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-500 cursor-pointer hover:text-manus-accent transition-colors group" onclick="sortTable(4, 'int')">
+                            <div class="flex items-center">
+                                Частота (%) <span class="ml-2 opacity-0 group-hover:opacity-100 transition-opacity">↕</span>
+                            </div>
+                        </th>
+                        <th class="px-6 py-4 font-bold text-[11px] uppercase tracking-wider text-gray-500">Статус</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                     <% if (offers.length === 0) { %>
                         <tr>
-                            <td colspan="5" class="px-6 py-12 text-center text-gray-400">
+                            <td colspan="6" class="px-6 py-12 text-center text-gray-400 italic">
                                 Данных пока нет. Запустите первый парсинг.
                             </td>
                         </tr>
                     <% } %>
-                    <% offers.forEach(offer => { %>
-                        <tr class="hover:bg-gray-50 transition-colors">
+                    <% offers.forEach((offer, index) => { %>
+                        <tr class="hover:bg-blue-50/30 transition-colors group">
+                            <td class="px-4 py-4 text-center text-xs font-mono text-gray-400 group-hover:text-manus-accent font-bold">
+                                <%= index + 1 %>
+                            </td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center space-x-3">
-                                    <div class="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center p-1 border border-gray-100 overflow-hidden">
+                                    <div class="w-10 h-10 rounded-lg bg-gray-50 flex items-center justify-center p-1 border border-gray-100 overflow-hidden shadow-sm group-hover:border-blue-200 transition-all">
                                         <% if (offer.logo) { %>
                                             <img src="<%= offer.logo %>" class="max-w-full max-h-full object-contain" alt="<%= offer.company_name %>">
                                         <% } else { %>
                                             <div class="text-[10px] text-gray-400 font-bold uppercase"><%= offer.company_name.substring(0,2) %></div>
                                         <% } %>
                                     </div>
-                                    <span class="font-medium text-gray-900"><%= offer.company_name %></span>
+                                    <span class="font-bold text-gray-900 group-hover:text-blue-700"><%= offer.company_name %></span>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <span class="px-2.5 py-1 bg-manus-accent/10 text-manus-accent rounded-md text-sm font-bold">
+                            <td class="px-6 py-4" data-value="<%= offer.avg_pos %>">
+                                <span class="px-2.5 py-1 bg-manus-accent/10 text-manus-accent rounded-md text-sm font-black border border-manus-accent/20">
                                     <%= offer.avg_pos.toFixed(2) %>
                                 </span>
                             </td>
-                            <td class="px-6 py-4 text-sm font-medium text-gray-700">
-                                <%= offer.showcase_count %> из <%= offer.total_showcases %>
+                            <td class="px-6 py-4 text-sm font-bold text-gray-600" data-value="<%= offer.showcase_count %>">
+                                <span class="text-gray-900"><%= offer.showcase_count %></span> <span class="text-gray-300">из</span> <%= offer.total_showcases %>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-6 py-4" data-value="<%= offer.frequency_pct %>">
                                 <div class="flex items-center">
-                                    <div class="w-16 bg-gray-100 rounded-full h-1.5 mr-2">
-                                        <div class="bg-blue-500 h-1.5 rounded-full" style="width: <%= offer.frequency_pct %>%;"></div>
+                                    <div class="w-16 bg-gray-100 rounded-full h-2 mr-3 overflow-hidden border border-gray-100">
+                                        <div class="bg-gradient-to-r from-blue-400 to-blue-600 h-full rounded-full transition-all duration-500" style="width: <%= offer.frequency_pct %>%;"></div>
                                     </div>
-                                    <span class="text-xs font-semibold text-gray-500"><%= offer.frequency_pct %>%</span>
+                                    <span class="text-xs font-black text-gray-500"><%= offer.frequency_pct %>%</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <span class="flex items-center text-xs font-semibold text-green-500">
-                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-2"></span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-black bg-green-100 text-green-700 uppercase tracking-tighter">
+                                    <span class="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
                                     Active
                                 </span>
                             </td>
@@ -71,5 +108,38 @@
             </table>
         </div>
     </div>
+
+    <script>
+        let sortDirections = {};
+
+        function sortTable(columnIndex, type = 'string') {
+            const table = document.getElementById("offersTable");
+            const tbody = table.querySelector("tbody");
+            const rows = Array.from(tbody.querySelectorAll("tr"));
+            
+            // Toggle direction
+            sortDirections[columnIndex] = !sortDirections[columnIndex];
+            const isAsc = sortDirections[columnIndex];
+
+            const sortedRows = rows.sort((a, b) => {
+                let cellA = a.cells[columnIndex].getAttribute('data-value') || a.cells[columnIndex].innerText.trim();
+                let cellB = b.cells[columnIndex].getAttribute('data-value') || b.cells[columnIndex].innerText.trim();
+
+                if (type === 'float') {
+                    return isAsc ? parseFloat(cellA) - parseFloat(cellB) : parseFloat(cellB) - parseFloat(cellA);
+                } else if (type === 'int') {
+                    return isAsc ? parseInt(cellA) - parseInt(cellB) : parseInt(cellB) - parseInt(cellA);
+                } else {
+                    return isAsc ? cellA.localeCompare(cellB) : cellB.localeCompare(cellA);
+                }
+            });
+
+            // Update row numbers after sort
+            sortedRows.forEach((row, index) => {
+                row.cells[0].innerText = index + 1;
+                tbody.appendChild(row);
+            });
+        }
+    </script>
 </body>
 </html>

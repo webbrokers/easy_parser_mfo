@@ -46,7 +46,6 @@ async function parseV3(page, browser, config) {
         const results = [];
         const processedContainers = new Set();
 
-        // Поиск всех элементов, которые могут быть кнопками или ссылками действий
         const potentialActions = Array.from(document.querySelectorAll('a, button, [role="button"], .btn'))
             .filter(el => {
                 const text = (el.innerText || "").toLowerCase();
@@ -54,9 +53,11 @@ async function parseV3(page, browser, config) {
             });
 
         potentialActions.forEach(el => {
-            // Ищем контейнер-карточку (Пункт 2: Card Pattern)
+            let logs = [];
             let card = null;
             let curr = el;
+            
+            // Ищем контейнер
             for (let i = 0; i < 10; i++) {
                 if (!curr || curr === document.body) break;
                 
@@ -64,7 +65,6 @@ async function parseV3(page, browser, config) {
                 const rect = curr.getBoundingClientRect();
                 const text = curr.innerText.toLowerCase();
                 
-                // Признаки карточки:
                 const hasMoney = text.includes('руб') || /\d+\s*000/.test(text);
                 const hasDays = text.includes('дн') || text.includes('день');
                 const hasActions = actionWords.filter(w => text.includes(w)).length >= 1;
@@ -73,60 +73,68 @@ async function parseV3(page, browser, config) {
 
                 if (isSignif && hasActions && (hasMoney || hasDays || hasBorderOrShadow)) {
                     card = curr;
-                    // Не прерываемся сразу, ищем самый внешний подходящий блок
+                    logs.push(`✅ Container found: ${curr.tagName}.${curr.className} (Money:${hasMoney}, Days:${hasDays}, Size:${isSignif})`);
                 }
                 curr = curr.parentElement;
             }
 
             if (card && !processedContainers.has(card)) {
                 processedContainers.add(card);
+                logs.push(`ℹ️ Start analyzing card...`);
                 
-                // --- СБОР ИНФОРМАЦИИ ИЗ КАРТОЧКИ ---
                 const cardText = card.innerText;
                 const cardTextLow = cardText.toLowerCase();
 
-                // Пункт 3: Brand Base Alignment (Сверка со списком)
+                // Пункт 3: Brand Base Alignment
                 let foundBrand = null;
                 for (const [brand, aliases] of Object.entries(allAliasesMap)) {
                     if (aliases.some(a => cardTextLow.includes(a.toLowerCase()))) {
                         foundBrand = brand;
+                        logs.push(`✅ Brand Match (Text): ${brand}`);
                         break;
                     }
                 }
+                if (!foundBrand) logs.push(`❌ Brand Match (Text): Failed`);
 
                 // Пункт 4: Meta-Data (Alt/Title)
                 let metaName = null;
                 const imgs = Array.from(card.querySelectorAll('img'));
-                for (const img of imgs) {
-                    const alt = (img.alt || img.title || "").toLowerCase();
-                    if (alt && alt.length > 2) {
-                        // Тоже сверяем со списком
-                        for (const [brand, aliases] of Object.entries(allAliasesMap)) {
-                            if (aliases.some(a => alt.includes(a.toLowerCase()))) {
-                                metaName = brand;
-                                break;
+                if (!foundBrand) {
+                    for (const img of imgs) {
+                        const alt = (img.alt || img.title || "").toLowerCase();
+                        if (alt && alt.length > 2) {
+                            for (const [brand, aliases] of Object.entries(allAliasesMap)) {
+                                if (aliases.some(a => alt.includes(a.toLowerCase()))) {
+                                    metaName = brand;
+                                    logs.push(`✅ Meta Match (Img): ${brand}`);
+                                    break;
+                                }
                             }
                         }
+                        if (metaName) break;
                     }
-                    if (metaName) break;
                 }
+                if (!foundBrand && !metaName) logs.push(`❌ Meta Match (Img): Failed`);
 
-                // Пункт 5: Analytics Targets (Метрика)
+                // Пункт 5: Analytics Targets
                 let analyticsName = null;
-                const analyticsElements = Array.from(card.querySelectorAll('[onclick], a[href*="click"], a[href*="jump"]'));
-                for (const ae of analyticsElements) {
-                    const attr = (ae.getAttribute('onclick') || ae.href || "").toLowerCase();
-                    if (attr.includes('reachgoal') || attr.includes('click') || attr.includes('jump')) {
-                        // Ищем упоминание бренда в коде цели
-                        for (const [brand, aliases] of Object.entries(allAliasesMap)) {
-                            if (aliases.some(a => attr.includes(a.toLowerCase()))) {
-                                analyticsName = brand;
-                                break;
+                if (!foundBrand && !metaName) {
+                    const analyticsElements = Array.from(card.querySelectorAll('[onclick], a[href*="click"], a[href*="jump"]'));
+                    for (const ae of analyticsElements) {
+                        const attr = (ae.getAttribute('onclick') || ae.href || "").toLowerCase();
+                        if (attr.includes('reachgoal') || attr.includes('click') || attr.includes('jump')) {
+                            for (const [brand, aliases] of Object.entries(allAliasesMap)) {
+                                if (aliases.some(a => attr.includes(a.toLowerCase()))) {
+                                    analyticsName = brand;
+                                    logs.push(`✅ Analytics Match: ${brand}`);
+                                    break;
+                                }
                             }
                         }
+                        if (analyticsName) break;
                     }
-                    if (analyticsName) break;
                 }
+                if (!foundBrand && !metaName && !analyticsName) logs.push(`❌ Analytics Match: Failed`);
 
                 // Ссылка
                 let link = el.tagName === 'A' ? el.href : null;
@@ -134,13 +142,15 @@ async function parseV3(page, browser, config) {
                     const anyLink = card.querySelector('a[href^="http"]:not([href*="' + currentHost + '"])');
                     if (anyLink) link = anyLink.href;
                 }
+                if (!link) logs.push(`⚠️ No valid link found`);
 
                 results.push({
                     raw_name: (foundBrand || metaName || analyticsName || "Unknown"),
                     original_text: cardText.substring(0, 100),
                     link: link,
                     img: (imgs[0] ? imgs[0].src : null),
-                    is_recognized: !!(foundBrand || metaName || analyticsName)
+                    is_recognized: !!(foundBrand || metaName || analyticsName),
+                    debug_logs: logs
                 });
             }
         });
@@ -153,29 +163,37 @@ async function parseV3(page, browser, config) {
     for (let i = 0; i < rawOffers.length; i++) {
         const item = rawOffers[i];
         let brandName = item.raw_name;
+        const itemLogs = item.debug_logs || [];
 
         // Если бренд не распознан — пробуем редирект
         if (brandName === "Unknown" && item.link && item.link.startsWith('http')) {
             console.log(`[Scraper v3.0] Редирект для неизвестного оффера #${i+1}...`);
+            itemLogs.push(`ℹ️ Starting Redirect Resolve (v3.0)...`);
+            
             const redirectedBrand = await resolveBrandFromRedirectV3(browser, item.link);
             if (redirectedBrand) {
+                itemLogs.push(`✅ Redirect Success. Extracted: "${redirectedBrand}"`);
                 // Пытаемся нормализовать через сервис
                 const normalized = NormalizationService.normalize(redirectedBrand);
                 if (normalized !== redirectedBrand) {
                     brandName = normalized;
+                    itemLogs.push(`✅ Normalization Success: ${redirectedBrand} -> ${brandName}`);
                 } else {
-                    // Если сервис не узнал, но мы получили чистое имя из титула — сохраним его как сырое
                     brandName = redirectedBrand;
+                    itemLogs.push(`⚠️ Normalization Failed. Using raw: ${brandName}`);
                 }
+            } else {
+                itemLogs.push(`❌ Redirect Resolve Failed (title/h1 not found or too short)`);
             }
         }
 
         finalResults.push({
             company_name: brandName,
             link: item.link || "#unknown",
-            image_url: item.img,
+            image_url: item.image_url || item.img,
             position: i + 1,
-            is_recognized: brandName !== "Unknown" && !brandName.includes('#unknown')
+            is_recognized: brandName !== "Unknown" && !brandName.includes('#unknown'),
+            debug_logs: itemLogs
         });
     }
 

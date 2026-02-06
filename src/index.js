@@ -128,7 +128,8 @@ app.get('/showcase/:id', async (req, res) => {
 app.get('/offers', async (req, res) => {
     try {
         const offers = AnalyticsService.getAveragePositions();
-        res.render('offers', { title: 'Все офферы', offers });
+        const stats = AnalyticsService.getTotalStats();
+        res.render('offers', { title: 'Все офферы', offers, stats });
     } catch (e) {
         console.error(e);
         res.status(500).send('Error');
@@ -136,6 +137,10 @@ app.get('/offers', async (req, res) => {
 });
 
 // API для получения ТОП-5 офферов по периоду
+app.get('/unknown-brands', (req, res) => {
+    res.render('unknown', { title: 'Неизвестные названия' });
+});
+
 app.get('/api/top-offers/:period', async (req, res) => {
     try {
         const { period } = req.params;

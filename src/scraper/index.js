@@ -459,12 +459,13 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         // Записываем неизвестные бренды в БД
         for (const item of finalData) {
             if (item.company_name === "Unknown" || !item.is_recognized) {
-                try {
-                    db.prepare(`
-                        INSERT INTO unknown_brands (showcase_id, run_id, raw_name, link, position)
-                        VALUES (?, ?, ?, ?, ?)
-                    `).run(showcaseId, runId, item.company_name, item.link, item.position);
-                } catch (e) {
+                    try {
+                        const debugJson = item.debug_logs ? JSON.stringify(item.debug_logs) : null;
+                        db.prepare(`
+                            INSERT INTO unknown_brands (showcase_id, run_id, raw_name, link, position, debug_json)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `).run(showcaseId, runId, item.company_name, item.link, item.position, debugJson);
+                    } catch (e) {
                     console.error(`[DB] Ошибка записи неизвестного бренда:`, e.message);
                 }
             }

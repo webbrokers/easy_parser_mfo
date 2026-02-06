@@ -102,6 +102,16 @@ db.prepare(`
     )
 `).run();
 
+// Миграция: добавляем debug_json для v1.7.0
+try {
+    db.prepare("ALTER TABLE unknown_brands ADD COLUMN debug_json TEXT").run();
+    console.log('[DB] Миграция: колонка debug_json добавлена в unknown_brands');
+} catch (e) {
+    if (!e.message.includes('duplicate column')) {
+        console.warn('[DB] Предупреждение при миграции debug_json:', e.message);
+    }
+}
+
 // Наполнение начальными данными, если пусто
 const count = db.prepare('SELECT count(*) as count FROM showcases').get().count;
 if (count === 0) {

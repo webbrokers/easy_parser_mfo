@@ -185,7 +185,7 @@ const AnalyticsService = {
         `).all(showcaseId);
     },
 
-    // Получить данные конкретного запуска
+    // Данные конкретного запуска
     getShowcaseRun: (runId) => {
         const run = db.prepare(`
             SELECT id, run_date, screenshot_path, parsing_method 
@@ -200,6 +200,29 @@ const AnalyticsService = {
         `).all(run.id);
 
         return { run, offers };
+    },
+
+    // Сводная статистика для страницы офферов
+    getTotalStats: () => {
+        const uniqueCount = db.prepare(`
+            SELECT COUNT(DISTINCT company_name) as count 
+            FROM (
+                SELECT os.company_name, os.link
+                FROM offer_stats os
+                JOIN parsing_runs pr ON os.run_id = pr.id
+                WHERE pr.id IN (
+                    SELECT id FROM parsing_runs 
+                    WHERE status = 'success' 
+                    GROUP BY showcase_id 
+                    HAVING id = MAX(id)
+                )
+            )
+        `).get().count;
+
+        const unknownCount = db.prepare('SELECT COUNT(*) as count FROM unknown_brands').get().count;
+        const totalShowcases = db.prepare('SELECT COUNT(*) as count FROM showcases WHERE is_active = 1').get().count;
+
+        return { uniqueCount, unknownCount, totalShowcases };
     }
 };
 

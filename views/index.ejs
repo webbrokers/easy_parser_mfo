@@ -204,7 +204,9 @@
                                 </svg>
                             </div>
                             <div>
-                                <p class="text-sm font-bold text-manus-text truncate"><%= site.name %></p>
+                                <a href="/showcase/<%= site.id %>" class="group/name">
+                                    <p class="text-sm font-bold text-manus-text truncate group-hover/name:text-manus-accent transition-colors"><%= site.name %></p>
+                                </a>
                                 <p class="text-xs text-gray-400 truncate"><%= site.url %></p>
                             </div>
                         </div>
