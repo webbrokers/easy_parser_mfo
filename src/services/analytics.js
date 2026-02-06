@@ -19,28 +19,39 @@ const AnalyticsService = {
             )
         `).all();
 
-        const brands = {};
+        const BrandsMap = {};
+        
+        // v2.9 Persistent Logos Loading
+        const logoMap = {};
+        try {
+            const pl = db.prepare('SELECT brand_name, logo_url FROM persistent_logos').all();
+            for (const p of pl) {
+                logoMap[p.brand_name] = p.logo_url;
+            }
+        } catch(e) {}
 
         rawData.forEach(row => {
             const BrandName = NormalizationService.normalize(row.company_name, row.link);
-            if (!brands[BrandName]) {
-                brands[BrandName] = { 
+            if (!BrandsMap[BrandName]) {
+                BrandsMap[BrandName] = { 
                     company_name: BrandName, 
                     total_pos: 0, 
                     appearances: 0,
                     showcases: new Set(),
-                    logo: row.image_url 
+                    logo: logoMap[BrandName] || null // Prefer persistent logo
                 };
             }
-            brands[BrandName].total_pos += row.position;
-            brands[BrandName].appearances += 1;
-            brands[BrandName].showcases.add(row.showcase_id);
-            if (!brands[BrandName].logo && row.image_url) {
-                brands[BrandName].logo = row.image_url;
+            BrandsMap[BrandName].total_pos += row.position;
+            BrandsMap[BrandName].appearances += 1;
+            BrandsMap[BrandName].showcases.add(row.showcase_id);
+            
+            // Если лого нет в Persistent, берем из данных, но не перезаписываем если уже есть
+            if (!BrandsMap[BrandName].logo && row.image_url) {
+                BrandsMap[BrandName].logo = row.image_url;
             }
         });
 
-        return Object.values(brands)
+        return Object.values(BrandsMap)
             .map(b => ({
                 company_name: b.company_name,
                 avg_pos: Math.round((b.total_pos / b.appearances) * 10) / 10,

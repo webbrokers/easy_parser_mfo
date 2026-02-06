@@ -112,6 +112,16 @@ try {
     }
 }
 
+// Таблица для хранения эталонных логотипов брендов (v2.9)
+db.prepare(`
+    CREATE TABLE IF NOT EXISTS persistent_logos (
+        brand_name TEXT PRIMARY KEY,
+        logo_url TEXT NOT NULL,
+        source_domain TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+`).run();
+
 // Наполнение начальными данными, если пусто
 const count = db.prepare('SELECT count(*) as count FROM showcases').get().count;
 if (count === 0) {

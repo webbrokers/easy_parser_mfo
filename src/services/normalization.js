@@ -145,6 +145,7 @@ const BRAND_ALIASES = {
     'Фри Капитал': ["freecapital","фри капитал"],
     'Лайк Мани': ["likemoney","лайк мани"],
     'Возьмика': ["vozmika","возьмика"],
+    'Credit7': ["credit7","credit 7","кредит7","кредит 7"],
 };
 
 class NormalizationService {

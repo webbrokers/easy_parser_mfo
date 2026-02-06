@@ -308,6 +308,37 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
             for (let i = 0; i < 10; i++) {
               if (!curr || curr === document.body || curr.tagName === 'HTML') break;
 
+
+
+              // Универсальный поиск: проверяем атрибуты на наличие слов card, offer, product
+              // v2.8 Smart Attribute Scan
+              let isExplicitCard = false;
+              if (curr.tagName === 'DIV' || curr.tagName === 'ARTICLE' || curr.tagName === 'LI') {
+                  // Проверяем явные маркеры в любых атрибутах (class, id, data-*, create-*, etc.)
+                  for (const attr of curr.attributes) {
+                      const val = (attr.value || "").toLowerCase();
+                      // Ищем полные слова или четкие вхождения
+                      // 'card', 'offer-card', 'product-item', 'microloan-product'
+                      if (/(^|[-_ ])(card|offer-card|product-card|offer-item|product-item|microloan-item)([-_ ]|$)/.test(val)) {
+                           if (!val.includes('wrapper') && !val.includes('container') && !val.includes('list') && !val.includes('grid')) {
+                               isExplicitCard = true;
+                               break;
+                           }
+                      }
+                      // Специальная обработка для data-qa = "Card" (Sravni) и подобных коротких значений
+                      if ((attr.name.includes('data-') || attr.name.includes('test')) && (val === 'card' || val === 'offer' || val === 'product')) {
+                          isExplicitCard = true;
+                          break;
+                      }
+                  }
+              }
+
+              if (isExplicitCard) {
+                   lastValid = curr;
+                   factors = 100; // Force valid
+                   break;
+              }
+
               const className = (curr.className || "").toString().toLowerCase();
               const idName = (curr.id || "").toString().toLowerCase();
               
@@ -333,7 +364,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
                   } catch(e) { return false; }
               });
 
-              let factors = 0;
+              factors = 0;
               if (isCardClass) factors++;
               if (hasKnownBrand) factors += 2; // hasKnownBrand берется из замыкания
               if (hasFinTerms) factors++;
@@ -355,17 +386,54 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
           const img = imgs.find(i => i.width > 30) || imgs[0];
           let name = "";
 
+          // v2.9 Smart Title Scan (Универсальный поиск заголовка)
+          // Ищем элементы, которые семантически обозначены как заголовок или имя бренда
+          const semanticTitle = card.querySelector('[itemprop="name"], [data-role="title"], [data-name="title"]');
+          if (semanticTitle) {
+               const val = semanticTitle.innerText.trim();
+               if (val && !isTrashName(val)) name = val;
+          }
+
+          // Если не нашли через стандартные семантические теги, ищем через data-атрибуты (универсально)
+          if (!name) {
+               const potentialTitles = Array.from(card.querySelectorAll('*'));
+               for (const el of potentialTitles) {
+                   // Проверяем все data-атрибуты элемента
+                   const isTitle = Array.from(el.attributes).some(attr => {
+                       return (attr.name.startsWith('data-') || attr.name.includes('test')) && 
+                              (attr.value === 'title' || attr.value === 'brand-name' || attr.value === 'company-name');
+                   });
+                   
+                   if (isTitle) {
+                       const val = el.innerText.trim();
+                       if (val && !isTrashName(val)) {
+                           name = val;
+                           break;
+                       }
+                   }
+               }
+          }
+
           // [Иерархия извлечения имени v2.1-v2.5 сохраняется]
-          const priorityNames = Array.from(card.querySelectorAll('.offer__name, .offer-name, .name, .title, .brand-name'));
-          for (const pn of priorityNames) {
-              const val = pn.innerText.trim();
-              if (val && !isTrashName(val)) { name = val; break; }
+          if (!name) {
+            const priorityNames = Array.from(card.querySelectorAll('.offer__name, .offer-name, .name, .title, .brand-name'));
+            for (const pn of priorityNames) {
+                const val = pn.innerText.trim();
+                if (val && !isTrashName(val)) { name = val; break; }
+            }
           }
 
           if (!name) {
-              const elementsWithTechnicalData = Array.from(card.querySelectorAll('[onclick], [data-offer], [data-name], [data-brand]'));
+              const elementsWithTechnicalData = Array.from(card.querySelectorAll('[onclick], [data-offer], [data-name], [data-brand], [data-qa], [data-testid]'));
               for (const te of elementsWithTechnicalData) {
-                  const technicalString = (te.getAttribute('onclick') || '') + ' ' + (te.getAttribute('data-offer') || '') + ' ' + (te.getAttribute('data-name') || '') + ' ' + (te.getAttribute('data-brand') || '');
+                  const technicalString = 
+                    (te.getAttribute('onclick') || '') + ' ' + 
+                    (te.getAttribute('data-offer') || '') + ' ' + 
+                    (te.getAttribute('data-name') || '') + ' ' + 
+                    (te.getAttribute('data-brand') || '') + ' ' +
+                    (te.getAttribute('data-qa') || '') + ' ' +
+                    (te.getAttribute('data-testid') || '');
+                  
                   const foundAlias = allAliases.find(a => a.length > 2 && technicalString.toLowerCase().includes(a));
                   if (foundAlias) {
                       for (const [brand, aliases] of Object.entries(aliasesMap)) {
@@ -457,20 +525,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
             version
         });
 
-        // Записываем неизвестные бренды в БД
-        for (const item of finalData) {
-            if (item.company_name === "Unknown" || !item.is_recognized) {
-                    try {
-                        const debugJson = item.debug_logs ? JSON.stringify(item.debug_logs) : null;
-                        db.prepare(`
-                            INSERT INTO unknown_brands (showcase_id, run_id, raw_name, link, position, debug_json)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        `).run(showcaseId, runId, item.company_name, item.link, item.position, debugJson);
-                    } catch (e) {
-                    console.error(`[DB] Ошибка записи неизвестного бренда:`, e.message);
-                }
-            }
-        }
+
     }
 
     console.log(`[Scraper v${version}] Парсинг завершен. Итого офферов: ${finalData.length}`);
@@ -661,6 +716,46 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         }
     } else {
         console.log(`[Scraper] Second Stage пропущен (версия ${version}).`);
+    }
+
+    // --- СОХРАНЕНИЕ НЕИЗВЕСТНЫХ БРЕНДОВ (Общее для всех версий) ---
+    // Перенесено из блока V3, чтобы работало везде
+    for (const item of finalOfFinal) {
+        if (item.company_name === "Unknown" || item.company_name === "Offer" || (item.is_recognized === false)) {
+            try {
+                // Пытаемся избежать дублей (уникальность по raw_name + run_id)
+                // Но проще просто игнорировать ошибки unique constraint если они возникнут
+                const debugJson = item.debug_logs ? JSON.stringify(item.debug_logs) : null;
+                db.prepare(`
+                    INSERT INTO unknown_brands (showcase_id, run_id, raw_name, link, position, debug_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `).run(showcaseId, runId, item.company_name, item.link, item.position || 0, debugJson);
+            } catch (e) {
+                // Игнорируем ошибки дублей, логируем остальные
+                if (!e.message.includes('UNIQUE constraint failed')) {
+                     console.error(`[DB] Ошибка записи неизвестного бренда:`, e.message);
+                }
+            }
+        } else if (item.is_recognized && item.image_url && item.image_url.startsWith('http')) {
+            // v2.9: Сохраняем качественные логотипы для известных брендов
+            // Если домен доверенный (например, Sravni.ru или любой другой), обновляем логотип
+            const isHighQualitySource = currentHost.includes('sravni.ru') || currentHost.includes('banki.ru');
+            
+            if (isHighQualitySource) {
+                 try {
+                     db.prepare(`
+                        INSERT INTO persistent_logos (brand_name, logo_url, source_domain, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(brand_name) DO UPDATE SET
+                        logo_url=excluded.logo_url,
+                        source_domain=excluded.source_domain,
+                        updated_at=CURRENT_TIMESTAMP
+                     `).run(item.company_name, item.image_url, currentHost);
+                 } catch (e) {
+                     // Silent fail logic update
+                 }
+            }
+        }
     }
 
     const insertStat = db.prepare(`
