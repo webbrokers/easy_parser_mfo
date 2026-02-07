@@ -37,6 +37,13 @@ try {
     // Колонка уже существует, игнорируем ошибку
 }
 
+// Миграция: добавляем parser_version, если его нет
+try {
+    db.prepare("ALTER TABLE showcases ADD COLUMN parser_version TEXT DEFAULT 'v5.6'").run();
+} catch (e) {
+    // Колонка уже существует, игнорируем ошибку
+}
+
 // Лог запусков парсинга
 db.prepare(`
     CREATE TABLE IF NOT EXISTS parsing_runs (

@@ -216,10 +216,80 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
     const brandAliases = NormalizationService.BRAND_ALIASES;
     const allKnownAliases = Object.values(brandAliases).flat().map(a => a.toLowerCase());
 
-    // 3. Логика парсинга офферов (Cluster Match v5.3)
-    // 3. Логика парсинга офферов (Cluster Match v5.3)
+    // 3. Логика парсинга офферов
+    let data = [];
+    
+    // Pattern Clustering v6.0: Автоматический поиск повторяющихся структур
+    if (version === VERSIONS.PARSER.PATTERN_CLUSTERING) {
+      console.log('[Scraper] Используется Pattern Clustering v6.0...');
+      
+      // Внедряем Pattern Detector в страницу
+      await page.addScriptTag({ path: require.resolve('./strategies/pattern_detector.js') });
+      
+      // Запускаем поиск паттерна
+      const patternSelector = await page.evaluate(() => {
+        return PatternDetector.findOfferPattern(5, 50);
+      });
+      
+      if (patternSelector) {
+        console.log(`[Pattern Clustering] Найден паттерн: ${patternSelector}`);
+        
+        // Используем найденный паттерн как customSelector
+        data = await page.evaluate((selector, knownBrands, aliasesMap, allAliases) => {
+          const results = [];
+          const cards = document.querySelectorAll(selector);
+          
+          console.log(`[Pattern Clustering] Обработка ${cards.length} карточек...`);
+          
+          cards.forEach((card, idx) => {
+            // Извлекаем данные из карточки
+            const img = card.querySelector('img');
+            const link = card.querySelector('a[href]');
+            const button = card.querySelector('button, .btn, [class*="button"]');
+            
+            let name = '';
+            
+            // Пытаемся извлечь название
+            const titleEl = card.querySelector('[class*="name"], [class*="title"], h1, h2, h3, h4');
+            if (titleEl) {
+              name = titleEl.innerText.trim();
+            }
+            
+            // Если не нашли, пробуем alt изображения
+            if (!name && img && img.alt) {
+              name = img.alt.trim();
+            }
+            
+            // Если не нашли, пробуем имя файла изображения
+            if (!name && img && img.src) {
+              const extracted = PatternDetector.extractBrandFromImage(img.src, img.alt);
+              if (extracted) name = extracted;
+            }
+            
+            if (name && link) {
+              results.push({
+                company_name: name,
+                link: link.href,
+                image_url: img ? img.src : '',
+                position: idx + 1
+              });
+            }
+          });
+          
+          return results;
+        }, patternSelector, brandNames, brandAliases, allKnownAliases);
+        
+        console.log(`[Pattern Clustering] Извлечено ${data.length} офферов`);
+      } else {
+        console.log('[Pattern Clustering] Паттерн не найден, fallback к Cluster Match...');
+      }
+    }
+    
+    // Если Pattern Clustering не использовался или не нашел паттерн, используем стандартную логику
+    if (version !== VERSIONS.PARSER.PATTERN_CLUSTERING || data.length === 0) {
+      // 3. Логика парсинга офферов (Cluster Match v5.3)
     const customSelector = showcase.custom_selector || '';
-    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost) => {
+    data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const filterPhrases = ["все займы", "новые", "популярные", "лучшие", "с плохой ки", "без процентов", "на карту", "без отказа"];
@@ -389,15 +459,41 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
           const img = imgs.find(i => i.width > 30) || imgs[0];
           let name = "";
 
-          // v2.9 Smart Title Scan (Универсальный поиск заголовка)
-          // Ищем элементы, которые семантически обозначены как заголовок или имя бренда
+          // v3.0 Smart Title Scan (Универсальный поиск заголовка с приоритетом)
+          // Приоритет 1: Семантические теги
           const semanticTitle = card.querySelector('[itemprop="name"], [data-role="title"], [data-name="title"]');
           if (semanticTitle) {
                const val = semanticTitle.innerText.trim();
                if (val && !isTrashName(val)) name = val;
           }
 
-          // Если не нашли через стандартные семантические теги, ищем через data-атрибуты (универсально)
+          // Приоритет 2: CSS-классы с явными названиями (offer__name, card-title и т.д.)
+          if (!name) {
+            const classTitleSelectors = [
+                '.offer__name', '.offer-name', '.offer__title', '.offer-title',
+                '.card__name', '.card-name', '.card__title', '.card-title',
+                '.product__name', '.product-name', '.product__title', '.product-title',
+                '.brand-name', '.company-name', '.mfo-name',
+                '[class*="__name"]', '[class*="-name"]', '[class*="__title"]', '[class*="-title"]'
+            ];
+            
+            for (const selector of classTitleSelectors) {
+                try {
+                    const titleEl = card.querySelector(selector);
+                    if (titleEl) {
+                        const val = titleEl.innerText.trim();
+                        if (val && !isTrashName(val)) {
+                            name = val;
+                            break;
+                        }
+                    }
+                } catch(e) {
+                    // Игнорируем невалидные селекторы
+                }
+            }
+          }
+
+          // Приоритет 3: data-атрибуты (универсально)
           if (!name) {
                const potentialTitles = Array.from(card.querySelectorAll('*'));
                for (const el of potentialTitles) {
@@ -418,13 +514,6 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
           }
 
           // [Иерархия извлечения имени v2.1-v2.5 сохраняется]
-          if (!name) {
-            const priorityNames = Array.from(card.querySelectorAll('.offer__name, .offer-name, .name, .title, .brand-name'));
-            for (const pn of priorityNames) {
-                const val = pn.innerText.trim();
-                if (val && !isTrashName(val)) { name = val; break; }
-            }
-          }
 
           if (!name) {
               const elementsWithTechnicalData = Array.from(card.querySelectorAll('[onclick], [data-offer], [data-name], [data-brand], [data-qa], [data-testid]'));
@@ -516,6 +605,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
 
       return final;
     }, brandNames, brandAliases, allKnownAliases, customSelector, version);
+    } // Конец блока if (version !== VERSIONS.PARSER.PATTERN_CLUSTERING || data.length === 0)
 
     // --- ОБРАБОТКА РЕЗУЛЬТАТОВ V3.0 И НЕИЗВЕСТНЫХ БРЕНДОВ ---
     let finalData = data;
