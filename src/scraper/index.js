@@ -133,7 +133,9 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
 
     // Генерация имени скриншота
     const urlObj = new URL(showcase.url);
-    const domainSlug = urlObj.hostname.replace(/\./g, "_");
+    const currentHost = urlObj.hostname;
+    const topDomain = currentHost.split('.').slice(-2).join('.');
+    const domainSlug = currentHost.replace(/\./g, "_");
     const timestamp = DateTime.now().toFormat("yyyy-MM-dd_HH-mm");
     const screenshotName = `${domainSlug}_${timestamp}.png`;
     const screenshotPath = path.join(
@@ -216,7 +218,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
 
     // 3. Логика парсинга офферов (Cluster Match v5.3)
     const customSelector = showcase.custom_selector || '';
-    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion) => {
+    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost, topDomain) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const filterPhrases = ["все займы", "новые", "популярные", "лучшие", "с плохой ки", "без процентов", "на карту", "без отказа"];
@@ -667,7 +669,8 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
         }
 
         return { results, method };
-      }, customSelector);
+
+      }, brandNames, brandAliases, allKnownAliases, customSelector, version, currentHost, topDomain);
 
       if (fallbackData.results && fallbackData.results.length > 0) {
         console.log(
