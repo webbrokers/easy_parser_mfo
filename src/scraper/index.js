@@ -218,6 +218,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
 
     // 3. Логика парсинга офферов
     let data = [];
+    const customSelector = showcase.custom_selector || '';
     
     // Pattern Clustering v6.0: Автоматический поиск повторяющихся структур
     if (version === VERSIONS.PARSER.PATTERN_CLUSTERING) {
@@ -288,7 +289,6 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
     // Если Pattern Clustering не использовался или не нашел паттерн, используем стандартную логику
     if (version !== VERSIONS.PARSER.PATTERN_CLUSTERING || data.length === 0) {
       // 3. Логика парсинга офферов (Cluster Match v5.3)
-    const customSelector = showcase.custom_selector || '';
     data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
