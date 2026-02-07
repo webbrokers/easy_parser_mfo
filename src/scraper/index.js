@@ -217,8 +217,9 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
     const allKnownAliases = Object.values(brandAliases).flat().map(a => a.toLowerCase());
 
     // 3. Логика парсинга офферов (Cluster Match v5.3)
+    // 3. Логика парсинга офферов (Cluster Match v5.3)
     const customSelector = showcase.custom_selector || '';
-    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost, topDomain) => {
+    const data = await page.evaluate((knownBrands, aliasesMap, allAliases, customSelector, scraperVersion, currentHost) => {
       const results = [];
       const keywords = ["займ", "деньги", "получить", "оформить", "взять", "заявку", "кредит", "на карту", "выплата", "выбрать", "подробнее", "бесплатно", "одобр"];
       const filterPhrases = ["все займы", "новые", "популярные", "лучшие", "с плохой ки", "без процентов", "на карту", "без отказа"];
@@ -670,7 +671,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
 
         return { results, method };
 
-      }, brandNames, brandAliases, allKnownAliases, customSelector, version, currentHost, topDomain);
+      }, brandNames, brandAliases, allKnownAliases, customSelector, version, currentHost);
 
       if (fallbackData.results && fallbackData.results.length > 0) {
         console.log(
