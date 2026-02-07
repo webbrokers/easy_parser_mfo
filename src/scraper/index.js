@@ -267,7 +267,7 @@ async function parseShowcase(showcaseId, version = VERSIONS.PARSER.STABLE, retry
       }
 
       // 0. Анализ паттернов ссылок
-      const currentHost = window.location.hostname;
+
       const allLinks = Array.from(document.querySelectorAll('a[href*="http"]'))
         .map((a) => {
           try {
